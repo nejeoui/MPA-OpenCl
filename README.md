@@ -4,4 +4,4 @@
 
 DESCRIPTION:
 
-This is a set of Multi precision Arithmetics function in OpenCl licensed under the Apache Software License v2.
+This is a set of Multiple precision Arithmetics function in OpenCl licensed under the Apache Software License v2.
