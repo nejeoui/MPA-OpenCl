@@ -11,7 +11,7 @@ The API can be used to accelerate applications using multiple precision arithmet
 
 List of supported multiple precision arithmetic operations in the MPA-OpenCl version 1.0-beta
 
- 1-Big numbers comparaison
+ 1-Big numbers comparaison 
  
  2-Big numbers addition
  
