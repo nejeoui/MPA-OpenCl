@@ -13,7 +13,7 @@ List of supported multiple precision arithmetic operations in the MPA-OpenCl ver
 
  1-Big numbers comparaison 
  
- 2-Big numbers addition
+ 2-Big numbers addition 
  
  3-Big numbers subtraction 
  
