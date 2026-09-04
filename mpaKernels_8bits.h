@@ -1,4 +1,6 @@
+#ifndef WORDLENGTH_T
 #define WORDLENGTH_T 32
+#endif
 void addPrime(__global unsigned char*  outputBytes, const size_t ID, __private unsigned char PRIME[]);
 void subtractPrime(__global unsigned char*  outputBytes, const size_t ID,__private unsigned char PRIME[]);
 char compareWithPrime(__global unsigned char*  outputBytes, const size_t ID, __private unsigned char PRIME[]);
@@ -17,5 +19,5 @@ int  compareResultPrivPrime(__private unsigned char resultPrivate[],__private un
 void multiplyNoOverFlow1xWORDLENGTH(unsigned char n,const size_t ID,__global unsigned char* y,__private unsigned char xiy[]) ;
 void addNoOverFlowPrivate_XIY(__private unsigned char resultPrivate[],__private unsigned char xiy[],__private unsigned char Aplusxiy[]);
 void addNoOverFlowPrivateAplusxiy(unsigned int ui,__private unsigned char Aplusxiy[],__private unsigned char cteUI[], __private unsigned char PRIME[]);
-void multiplyNoOverFlowCte(int n,__private unsigned char cteUI[],__private unsigned char PRIME[]);
+void multiplyNoOverFlowCte(uint n,__private unsigned char cteUI[],__private unsigned char PRIME[]);
 void copyResultPrivTo(__global unsigned char*  result,__private unsigned char resultPrivate[] ,const size_t ID);

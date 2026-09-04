@@ -1,16 +1,3 @@
-// add Unit test using cmocka.org
-/*
-https://community.amd.com/thread/145960
-Okay, I see what the problem is now.
-I had 'uint64_t' defined as 'unsigned long long' (which is standard in 32-bit gcc and also works in 64-bit gcc).
-But in the OpenCL spec, the 64-bit type is 'unsigned long', and 'unsigned long long' is the 128-bit type.
-If I define uint64_t as 'ulong' as per the OpenCL spec, mul_hi works correctly.
-The reason why didn't blow up earlier is that, apparently, Stream does NOT really treat 'unsigned long long' as a 128-bit type. (So it does not get off scot-free, there's still a bug there). In particular, sizeof(unsigned long long) is 8,
- and all my code except for the mul_hi instruction works as if it were uint64_t.
-
- 64-bit Atomics
- 
-*/
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -35,21 +22,18 @@ The reason why didn't blow up earlier is that, apparently, Stream does NOT reall
 #define MONTGOMERYMULTIPLICATION 7
 #define ARITHMETICS 8
 #define MAX_SOURCE_SIZE (0x100000)
-// Terminal Colors
+typedef unsigned short WORDT;
 #define  END_COLOR   "\x1b[0m"
 #define  BLUE_TERMINAL    "\x1b[34m"
 #define  RED_TERMINAL     "\x1b[31m"
 #define  GREEN_TERMINAL   "\x1b[32m"
 
-
 int compareArray(unsigned short*  a,unsigned short*  b,const int SIZE,const int WORDLINGTH) {
     int diff=WORDLINGTH-SIZE;
 for (int i = 0; i < SIZE; i++){
 if(a[i+diff]>b[i]) {
-//printf(">  %d %d %d\n",i,a[i],b[i]);
     return 1;}
 if(a[i+diff]<b[i]) {
-//printf("<  %d %d %d\n",i,a[i],b[i]);
     return -1;
 }
 }
@@ -57,24 +41,23 @@ return 0;
 }
 char ansi[]= "\x1b[32m";
 void printArray(unsigned short*  bytes,const int SIZE,const size_t ID) {
-       
-        char charAti[8]; 
+
+        char charAti[8];
         sprintf(charAti,"[%5ld", bytes[ID*SIZE]);
         printf("%s",charAti );
            for (int i = 1; i < SIZE; i++){
-             
+
             sprintf(charAti,",%5ld", bytes[i+ID*SIZE]);
             printf("%s",charAti );
      }
 
-        
         printf("]\n" );
-     
+
     }
 const char *getErrorString(cl_int error)
 {
     switch(error){
-        
+
         case 0: return "CL_SUCCESS";
         case -1: return "CL_DEVICE_NOT_FOUND";
         case -2: return "CL_DEVICE_NOT_AVAILABLE";
@@ -144,9 +127,8 @@ const char *getErrorString(cl_int error)
     }
 }
 
-
 void printDeviceInfo(cl_device_id device)
-{   
+{
     char queryBuffer[1024];
     int queryInt;
     size_t querySize_t[3];
@@ -176,12 +158,10 @@ void printDeviceInfo(cl_device_id device)
                               sizeof(int), &queryInt, NULL);
     printf("CL_DEVICE_MAX_COMPUTE_UNITS: %d\n", queryInt);
 
-    
     clError = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,
                               sizeof(int), &queryInt, NULL);
     printf("CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: %d\n", queryInt);
 
-    
     clError = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE,
                               sizeof(size_t), querySize_t, NULL);
     printf("CL_DEVICE_MAX_WORK_GROUP_SIZE: %d\n", querySize_t[0]);
@@ -190,13 +170,10 @@ void printDeviceInfo(cl_device_id device)
                               3*sizeof(size_t), querySize_t, NULL);
     printf("CL_DEVICE_MAX_WORK_GROUP_SIZE: {%zu, %zu, %zu}\n", querySize_t[0], querySize_t[1], querySize_t[2]);
 
-    
-    
-    
 }
 
 void printKernelWorkGroupInfo(cl_kernel kernel,cl_device_id device)
-{   
+{
     size_t SIZE[3];
     int queryInt;
     cl_int clError;
@@ -211,24 +188,94 @@ void printKernelWorkGroupInfo(cl_kernel kernel,cl_device_id device)
                               SIZE, NULL);
     printf("CL_KERNEL_WORK_GROUP_SIZE : %zu\n", SIZE[0]);
 
-    
-    
-    
 }
 const char *decode(int OPERATOR){
 switch(OPERATOR){
-        case ADD: return "ADD"; 
+        case ADD: return "ADD";
         case ADDMOD: return "ADDMOD";
         case SUBTRACTMOD: return "SUBTRACTMOD";
         case SUBTRACT: return "SUBTRACT";
         case MULTIPLYPRODUCTSCANNING: return "MULTIPLYPRODUCTSCANNING";
         case MULTIPLYOPRANDSCANNING: return "MULTIPLYOPRANDSCANNING";
         case MONTGOMERYMULTIPLICATION: return "MONTGOMERYMULTIPLICATION";
-       
+
     }
     return "INDEFINED OPERATOR";
 }
 
+static void mpaToWords(const mpz_t z, WORDT *buf, int nwords, int wbits)
+{
+    mpz_t t;
+    unsigned long mask = (wbits >= 32) ? 0xFFFFFFFFUL : ((1UL << wbits) - 1UL);
+    int i;
+    mpz_init_set(t, z);
+    for (i = nwords - 1; i >= 0; i--) {
+        buf[i] = (WORDT)(mpz_get_ui(t) & mask);
+        mpz_tdiv_q_2exp(t, t, (mp_bitcnt_t)wbits);
+    }
+    mpz_clear(t);
+}
+
+static void mpaFromWords(mpz_t z, const WORDT *buf, int nwords, int wbits)
+{
+    int i;
+    mpz_set_ui(z, 0);
+    for (i = 0; i < nwords; i++) {
+        mpz_mul_2exp(z, z, (mp_bitcnt_t)wbits);
+        mpz_add_ui(z, z, (unsigned long)buf[i]);
+    }
+}
+
+static unsigned long mpaMPrime(const mpz_t p, int wbits)
+{
+    mpz_t base, inv, mp;
+    unsigned long r;
+    mpz_inits(base, inv, mp, NULL);
+    mpz_ui_pow_ui(base, 2, (unsigned long)wbits);
+    if (mpz_invert(inv, p, base) == 0) {
+        fprintf(stderr, "modulus is even; no Montgomery inverse exists\n");
+        exit(EXIT_FAILURE);
+    }
+    mpz_sub(mp, base, inv);
+    r = mpz_get_ui(mp);
+    mpz_clears(base, inv, mp, NULL);
+    return r;
+}
+
+static void mpaPickDevice(cl_device_id *outDev)
+{
+    cl_platform_id plats[16];
+    cl_uint nplat = 0, nd = 0;
+    cl_device_type order[3];
+    const char *want = getenv("MPA_DEVICE_TYPE");
+    int t, t0 = 0;
+    cl_uint i;
+    cl_device_id d;
+
+    order[0] = CL_DEVICE_TYPE_GPU;
+    order[1] = CL_DEVICE_TYPE_ACCELERATOR;
+    order[2] = CL_DEVICE_TYPE_CPU;
+
+    if (clGetPlatformIDs(16, plats, &nplat) != CL_SUCCESS || nplat == 0) {
+        fprintf(stderr, "no OpenCL platform found\n");
+        exit(EXIT_FAILURE);
+    }
+    if (want && !strcmp(want, "cpu")) t0 = 2;
+
+    for (t = t0; t < 3; t++)
+        for (i = 0; i < nplat; i++)
+            if (clGetDeviceIDs(plats[i], order[t], 1, &d, &nd) == CL_SUCCESS && nd > 0) {
+                *outDev = d;
+                return;
+            }
+    fprintf(stderr, "no OpenCL device found\n");
+    exit(EXIT_FAILURE);
+}
+
+static int testGpuResults(const WORDT *input1, const WORDT *input2,
+                          const WORDT *outputBytes, size_t K, int OPERATOR,
+                          int DEBUG_MODE, const WORDT *PRIME, int WORDLENGTH,
+                          const mpz_t bigPrime, int wbits);
 
 int main(int argc, char **argv)
 {
@@ -244,10 +291,8 @@ unsigned long long int iterations;
 
            str = argv[1];
 
-           errno = 0;    /* To distinguish success/failure after call */
+           errno = 0;
            iterations = strtoull(str, &endptr, base);
-
-           /* Check for various possible errors */
 
            if ((errno == ERANGE && (iterations == LONG_MAX || iterations == LONG_MIN))
                    || (errno != 0 && iterations == 0)) {
@@ -261,93 +306,64 @@ unsigned long long int iterations;
            }
 
            DEBUG_MODE = (argc > 5) ? atoi(argv[5]) : 0;
-    
+
     int OPERATOR = atoi(argv[2]);
 
     int WORDSIZE = atoi(argv[4]);
 
      int BITSLENGTH = atoi(argv[3]);
 
-     int WORDLENGTH = BITSLENGTH/WORDSIZE;  
-   //  printf("WORDLENGTH = %d\n",WORDLENGTH);
-  //   printf("DEBUG_MODE = %d\n",DEBUG_MODE);
-       int MPRIME = 49;
+     int WORDLENGTH = BITSLENGTH/WORDSIZE;
+       unsigned long MPRIME;
 
-    unsigned short* PRIME;
-    PRIME= (unsigned short*)malloc(WORDLENGTH*sizeof(unsigned short));
+    WORDT* PRIME;
+    PRIME= (WORDT*)malloc(WORDLENGTH*sizeof(WORDT));
+    if (!PRIME) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
      mpz_t bigPrime;
+     mpz_init(bigPrime);
+    {
+    const char *primeStr = NULL;
     switch(BITSLENGTH){
-        case 256 : { 
-        const char* primeStr= "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
-         
-          mpz_init(bigPrime);
-          size_t* count;
-          count = (size_t*) malloc(sizeof(size_t));
-          mpz_set_ui(bigPrime,0);
-          mpz_set_str(bigPrime,primeStr, 16);
-
-          PRIME=mpz_export(NULL, count, 1, sizeof(unsigned short), 1, 0, bigPrime);
-
-          //precalculated m_prime
-            MPRIME = 49;
-            }
-             break;
-        case 512 : { 
-          //  brainpoolP512r1 https://www.teletrust.de/fileadmin/files/oid/ecgdsa_final.pdf
-        const char* primeStr=  
-          "AADD9DB8DBE9C48B3FD4E6AE33C9FC07CB308DB3B3C9D20ED6639CCA703308717D4D9B009BC66842AECDA12AE6A380E62881FF2F2D82C68528AA6056583A48F3";
-          
-          mpz_init(bigPrime);
-          size_t* count;
-          count = (size_t*) malloc(sizeof(size_t));
-          mpz_set_ui(bigPrime,0);
-          mpz_set_str(bigPrime,primeStr, 16);
-          PRIME=mpz_export(NULL, count, 1, sizeof(unsigned short), 1, 0, bigPrime);
-
-          //precalculated m_prime
-            MPRIME = 49;
-            }
-             break;
-        case 1024 : { 
-        const char* primeStr= 
-          "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"\
-          "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"\
-          "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"\
-          "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF97";
-          mpz_init(bigPrime);
-          size_t* count;
-          count = (size_t*) malloc(sizeof(size_t));
-          mpz_set_ui(bigPrime,0);
-          mpz_set_str(bigPrime,primeStr, 16);
-          PRIME=mpz_export(NULL, count, 1, sizeof(unsigned short), 1, 0, bigPrime);
-
-          //precalculated m_prime
-            MPRIME = 49;
-            }
-             break;
-        case 2048 :{ 
-        const char* primeStr= 
-          "E53DF5FC3F650D066875837012A4E7BEA863C65CB592D9C36942CF69CBC6DD4F"\
-          "D804E19CCF2696C9BEBCF18742FA5FB091CBDE1782E8291009464913ECE19745"\
-          "7800EA6E43B0E2A64615D182B6DE150479C58D1C7C702D47EA3031B379CA13A2"\
-          "048C964E1D1E8D4CD3815D0895BF31E53271D4607E16461B77FB26100915D679"\
-          "9060203EDEBFEA9495A5A8E7CED68FC9DB2D47CE7992461BA78174608AD0BBE3"\
-          "F5E63EC6C960564430CBD2E6E587D08EE12F94B5B99DFFB12C6727A25E800DAC"\
-          "6CD8DE77A5BBC93B36E444B070888CB5ADD991870466968A6E9A23C2EE0A1D67"\
-          "1C9B601081A44AA6A58D4DC76686EF15FCE1C9AEB4033395A9B24BE1AA1929BB";
-          mpz_init(bigPrime);
-          size_t* count;
-          count = (size_t*) malloc(sizeof(size_t));
-          mpz_set_ui(bigPrime,0);
-          mpz_set_str(bigPrime,primeStr, 16);
-          PRIME=mpz_export(NULL, count, 1, sizeof(unsigned short), 1, 0, bigPrime);
-          //precalculated m_prime
-            MPRIME = 49;
-            }
-             break;
+        case 256 :
+            primeStr = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F";
+            break;
+        case 512 :
+            primeStr = "AADD9DB8DBE9C48B3FD4E6AE33C9FC07CB308DB3B3C9D20ED6639CCA70330871"
+                       "7D4D9B009BC66842AECDA12AE6A380E62881FF2F2D82C68528AA6056583A48F3";
+            break;
+        case 1024 :
+            primeStr = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+                       "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+                       "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+                       "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF97";
+            break;
+        case 2048 :
+            primeStr = "E53DF5FC3F650D066875837012A4E7BEA863C65CB592D9C36942CF69CBC6DD4F"
+                       "D804E19CCF2696C9BEBCF18742FA5FB091CBDE1782E8291009464913ECE19745"
+                       "7800EA6E43B0E2A64615D182B6DE150479C58D1C7C702D47EA3031B379CA13A2"
+                       "048C964E1D1E8D4CD3815D0895BF31E53271D4607E16461B77FB26100915D679"
+                       "9060203EDEBFEA9495A5A8E7CED68FC9DB2D47CE7992461BA78174608AD0BBE3"
+                       "F5E63EC6C960564430CBD2E6E587D08EE12F94B5B99DFFB12C6727A25E800DAC"
+                       "6CD8DE77A5BBC93B36E444B070888CB5ADD991870466968A6E9A23C2EE0A1D67"
+                       "1C9B601081A44AA6A58D4DC76686EF15FCE1C9AEB4033395A9B24BE1AA1929BB";
+            break;
+        default :
+            fprintf(stderr, "unsupported BITSLENGTH %d (expected 256, 512, 1024 or 2048)\n",
+                    BITSLENGTH);
+            exit(EXIT_FAILURE);
     }
- //  printArray(PRIME,WORDLENGTH,0);
-    struct timespec tstart={0,0}, tend_init={0,0} , tend_createContext={0,0}, 
+    if (mpz_set_str(bigPrime, primeStr, 16) != 0) {
+        fprintf(stderr, "malformed modulus literal\n"); exit(EXIT_FAILURE);
+    }
+    if ((int)mpz_sizeinbase(bigPrime, 2) != BITSLENGTH) {
+        fprintf(stderr, "modulus literal is %d bits, expected %d\n",
+                (int)mpz_sizeinbase(bigPrime, 2), BITSLENGTH);
+        exit(EXIT_FAILURE);
+    }
+    mpaToWords(bigPrime, PRIME, WORDLENGTH, WORDSIZE);
+    MPRIME = mpaMPrime(bigPrime, WORDSIZE);
+    }
+    struct timespec tstart={0,0}, tend_init={0,0} , tend_createContext={0,0},
     tend_loadTomemory={0,0},tend_BuildProgram={0,0}, tend_createKernel={0,0}, tend_exec={0,0}, tend_redResults={0,0}, tend_test={0,0};
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
@@ -367,28 +383,25 @@ unsigned long long int iterations;
     cl_int ret;
     size_t k1=1024;
     size_t K = k1*iterations;
-  //  printf("K = %zu\n", K);
-   const size_t global[]={K/WORDLENGTH}; // global domain size
-   const size_t local[]={1};
+   const size_t global[]={K/WORDLENGTH};
+   const size_t *local = NULL;
     int i, j;
     unsigned short* A;
     unsigned short* B;
     unsigned short* C;
     int* OPERATOR_WORDSIZE_BITSLENGHT_MPRIME;
-    
+
     A = (unsigned short*)malloc(K*sizeof(unsigned short));
     B = (unsigned short*)malloc(K*sizeof(unsigned short));
     if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned short*)malloc(2*K*sizeof(unsigned short));
     else C = (unsigned short*)malloc(K*sizeof(unsigned short));
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME = (int*)malloc(4*sizeof(int));
-    
-    
+
     FILE *fp;
     const char fileName[] = "mpaKernel_16bits.cl";
     size_t source_size;
      char *source_str;
-    
-    /* Load kernel source file */
+
     fp = fopen(fileName, "rb");
     if (!fp) {
         fprintf(stderr, "Failed to load kernel.\n");
@@ -397,17 +410,15 @@ unsigned long long int iterations;
     source_str = ( char *)malloc(MAX_SOURCE_SIZE);
     source_size = fread(source_str, 1, MAX_SOURCE_SIZE, fp);
     fclose(fp);
-    
-    /* Initialize input data randomly using Openssl RAND_bytes */
+
     unsigned short* AR;
     unsigned short* BR;
-   
-    
+
     AR = (unsigned short*)malloc(WORDLENGTH*sizeof(unsigned short));
     BR = (unsigned short*)malloc(WORDLENGTH*sizeof(unsigned short));
     for (size_t i=0; i < K/ (WORDLENGTH); i++) {
-        RAND_pseudo_bytes(AR, 2*WORDLENGTH);
-        RAND_pseudo_bytes(BR, 2*WORDLENGTH);
+        if (RAND_bytes((unsigned char *)AR, (int)(2*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
+        if (RAND_bytes((unsigned char *)BR, (int)(2*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
         if(compareArray(AR,BR,WORDLENGTH,WORDLENGTH)==-1){
             unsigned short* tempArr;
             tempArr=AR;
@@ -419,37 +430,31 @@ unsigned long long int iterations;
             B[i*WORDLENGTH+j]=BR[j];
         }
     }
-    
-// for montgomery , ADDMOD  and SUBTRACTMOD test ensure A<PRIMEtest
+
     if(OPERATOR==MONTGOMERYMULTIPLICATION||OPERATOR==ADDMOD||OPERATOR==SUBTRACTMOD){
      for (size_t i=0; i < K; i+=WORDLENGTH){
-    
+
        if (A[i]>=PRIME[0])    A[i]=PRIME[0]-1;
        if(B[i]>=PRIME[0])     B[i]=PRIME[0]-1;
      }
     }
-    
+
     free(AR);
     free(BR);
     clock_gettime(CLOCK_MONOTONIC, &tend_init);
-    
-    
-    /* Get platform/device information */
+
     ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
-    //ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
-    ret = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_CPU, 1, &device_id, &ret_num_devices);
-    
+    mpaPickDevice(&device_id);
+    mpaPickDevice(&device_id);
+
     printDeviceInfo(device_id);
-    
-    /* Create OpenCL Context */
+
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
-    
-    /* Create command queue */
+
     command_queue = clCreateCommandQueue(context, device_id, 0, &ret);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_createContext);
-    
-    /* Create buffer object */
+
     Amobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned short), NULL, &ret);
     Bmobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned short), NULL, &ret);
      if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned short), NULL, &ret);
@@ -458,22 +463,23 @@ unsigned long long int iterations;
     Omobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 4*sizeof(int), NULL, &ret);
     Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, WORDLENGTH*sizeof(unsigned short), NULL, &ret);
 
-    /* Copy input data to memory buffer */
     ret = clEnqueueWriteBuffer(command_queue, Amobj, CL_TRUE, 0, K*sizeof(unsigned short), A, 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, Bmobj, CL_TRUE, 0, K*sizeof(unsigned short), B, 0, NULL, NULL);
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[0]=OPERATOR;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[1]=WORDSIZE;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[2]=BITSLENGTH;
-    OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3]=MPRIME;
+    OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3]=(int)(unsigned int)MPRIME;
 
     ret = clEnqueueWriteBuffer(command_queue, Omobj, CL_TRUE, 0, 4*sizeof(int), OPERATOR_WORDSIZE_BITSLENGHT_MPRIME , 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, WORDLENGTH*sizeof(unsigned short), PRIME, 0, NULL, NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_loadTomemory);
-    
-    /* Create kernel from source */
+
     program = clCreateProgramWithSource(context, 1, (const  char **)&source_str, (const size_t *)&source_size, &ret);
-    ret = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+    char buildOpts[128];
+    snprintf(buildOpts, sizeof(buildOpts), "-I%s -DWORDLENGTH_T=%d",
+             getenv("MPA_KERNEL_DIR") ? getenv("MPA_KERNEL_DIR") : ".", WORDLENGTH);
+    ret = clBuildProgram(program, 1, &device_id, buildOpts, NULL, NULL);
 
     if (ret != CL_SUCCESS) {
         char buffer[10240];
@@ -481,9 +487,8 @@ unsigned long long int iterations;
         fprintf(stderr, "CL Compilation failed:\n%s", buffer);
         abort();
     }
-    
+
      clock_gettime(CLOCK_MONOTONIC, &tend_BuildProgram);
-    /* Create task parallel OpenCL kernel */
     kernel = clCreateKernel(program, "mpaKernel", &ret);
     if (ret != CL_SUCCESS)
     {
@@ -492,71 +497,65 @@ unsigned long long int iterations;
     }
 
     printKernelWorkGroupInfo(kernel,device_id);
-    
-    /* Set OpenCL kernel arguments */
-    
+
         ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&Amobj);
         ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&Bmobj);
         ret = clSetKernelArg(kernel, 2, sizeof(cl_mem), (void *)&Cmobj);
         ret = clSetKernelArg(kernel, 3, sizeof(cl_mem), (void *)&Omobj);
         ret = clSetKernelArg(kernel, 4, sizeof(cl_mem), (void *)&Pmobj);
-    
+
     if (ret != CL_SUCCESS)
     {
         printf("Error: Failed to set kernel arguments! %s\n", getErrorString(ret));
         exit(1);
     }
     clock_gettime(CLOCK_MONOTONIC, &tend_createKernel);
-    /* Execute OpenCL kernel as task parallel */
-    
+
         ret = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, global, local, 0, NULL, NULL);
         if (ret)
         {
             printf("Error: Failed to execute kernel %s!\n",getErrorString(ret));
             return EXIT_FAILURE;
         }
-    
+
     clFinish(command_queue);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_exec);
-    /* Copy result to host */
    if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned short), C, 0, NULL, NULL);
    else ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, K*sizeof(unsigned short), C, 0, NULL, NULL);
     printf("clEnqueueReadBuffer for Cmobj  %s \n",getErrorString(ret));
     clFinish(command_queue);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_redResults);
-    //Display result 
-   /* for (i=0; i < 256; i++) {
-       
-            printf("%u \n", C[K-i]);
-       
-      
-    }*/
+
      printf("Entring Test for %s OPERATOR  using K=%zu and WORDLENGTH=%d and BITSLENGTH=%d \n",decode(OPERATOR),K,WORDLENGTH ,BITSLENGTH);
-    if(testGpuResults(A,B,C,K,OPERATOR,DEBUG_MODE,PRIME,WORDLENGTH,bigPrime)==1)printf("%s executed %zu times Successefully \n",decode(OPERATOR),K, WORDLENGTH, bigPrime);
+    int verified = testGpuResults(A,B,C,K,OPERATOR,DEBUG_MODE,PRIME,WORDLENGTH,bigPrime,WORDSIZE);
+    if (verified)
+        printf(GREEN_TERMINAL "%s verified against GMP for all %zu items" END_COLOR "\n",
+               decode(OPERATOR), K/(size_t)WORDLENGTH);
+    else
+        printf(RED_TERMINAL "%s FAILED verification" END_COLOR "\n", decode(OPERATOR));
     clock_gettime(CLOCK_MONOTONIC, &tend_test);
 double Initialization=0,CREATECONTEXT=0, LOADToMEMORY=0,BuildProgram=0,CREATEKERNEL=0,EXECUTION=0,READRESULTS=0,  CPUTIME=0,OPENCLOVRALLTime=0, SPEEDUP;
 
-  Initialization =  ((double)tend_init.tv_sec + 1.0e-9*tend_init.tv_nsec) - 
+  Initialization =  ((double)tend_init.tv_sec + 1.0e-9*tend_init.tv_nsec) -
            ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec);
- CREATECONTEXT =   ((double)tend_createContext.tv_sec + 1.0e-9*tend_createContext.tv_nsec) - 
+ CREATECONTEXT =   ((double)tend_createContext.tv_sec + 1.0e-9*tend_createContext.tv_nsec) -
            ((double)tend_init.tv_sec + 1.0e-9*tend_init.tv_nsec);
-LOADToMEMORY =((double)tend_loadTomemory.tv_sec + 1.0e-9*tend_loadTomemory.tv_nsec) - 
+LOADToMEMORY =((double)tend_loadTomemory.tv_sec + 1.0e-9*tend_loadTomemory.tv_nsec) -
            ((double)tend_createContext.tv_sec + 1.0e-9*tend_createContext.tv_nsec);
-BuildProgram = ((double)tend_BuildProgram.tv_sec + 1.0e-9*tend_BuildProgram.tv_nsec) - 
+BuildProgram = ((double)tend_BuildProgram.tv_sec + 1.0e-9*tend_BuildProgram.tv_nsec) -
            ((double)tend_loadTomemory.tv_sec + 1.0e-9*tend_loadTomemory.tv_nsec);
-CREATEKERNEL = ((double)tend_createKernel.tv_sec + 1.0e-9*tend_createKernel.tv_nsec) - 
+CREATEKERNEL = ((double)tend_createKernel.tv_sec + 1.0e-9*tend_createKernel.tv_nsec) -
            ((double)tend_BuildProgram.tv_sec + 1.0e-9*tend_BuildProgram.tv_nsec),
-EXECUTION = ((double)tend_exec.tv_sec + 1.0e-9*tend_exec.tv_nsec) - 
+EXECUTION = ((double)tend_exec.tv_sec + 1.0e-9*tend_exec.tv_nsec) -
            ((double)tend_createKernel.tv_sec + 1.0e-9*tend_createKernel.tv_nsec),
-READRESULTS = ((double)tend_redResults.tv_sec + 1.0e-9*tend_redResults.tv_nsec) - 
+READRESULTS = ((double)tend_redResults.tv_sec + 1.0e-9*tend_redResults.tv_nsec) -
            ((double)tend_exec.tv_sec + 1.0e-9*tend_exec.tv_nsec),
-CPUTIME =((double)tend_test.tv_sec + 1.0e-9*tend_test.tv_nsec) - 
+CPUTIME =((double)tend_test.tv_sec + 1.0e-9*tend_test.tv_nsec) -
            ((double)tend_redResults.tv_sec + 1.0e-9*tend_redResults.tv_nsec);
 OPENCLOVRALLTime= LOADToMEMORY+ EXECUTION + READRESULTS;
-      
-    // dispaly timing in table 
+
     printf("----------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
  if(OPENCLOVRALLTime<CPUTIME){
     SPEEDUP = (CPUTIME/OPENCLOVRALLTime)*100;
@@ -566,14 +565,13 @@ OPENCLOVRALLTime= LOADToMEMORY+ EXECUTION + READRESULTS;
 else { printf(  "Initialization  | CREATE CONTEXT  |  LOAD To MEMORY |Build Program src| CREATE KERNEL  |  EXECUTION      |      READ RESULTS    " GREEN_TERMINAL  "|    CPUTIME   " END_COLOR RED_TERMINAL "| OPENCLOVRALLTime | CPU SPEEDUP |\n" END_COLOR);
     SPEEDUP = (OPENCLOVRALLTime/CPUTIME)*100;
     }
-    printf(                  "    %.6f    |     %.6f    |     %.6f    |     %.6f    |    %.6f    |    %.6f     |      %.6f        |   %.6f    |    %.6f     |    %.2f %%    |\n", 
+    printf(                  "    %.6f    |     %.6f    |     %.6f    |     %.6f    |    %.6f    |    %.6f     |      %.6f        |   %.6f    |    %.6f     |    %.2f %%    |\n",
                          Initialization   ,  CREATECONTEXT    ,  LOADToMEMORY ,   BuildProgram  , CREATEKERNEL ,  EXECUTION,            READRESULTS      ,            CPUTIME,        OPENCLOVRALLTime, SPEEDUP  );
     printf("----------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
     free(source_str);
     free(A);
     free(B);
     free(C);
-    /* Finalization */
     ret = clFlush(command_queue);
     ret = clFinish(command_queue);
     ret = clReleaseKernel(kernel);
@@ -582,165 +580,82 @@ else { printf(  "Initialization  | CREATE CONTEXT  |  LOAD To MEMORY |Build Prog
     ret = clReleaseMemObject(Bmobj);
     ret = clReleaseMemObject(Cmobj);
     ret = clReleaseMemObject(Omobj);
+    ret = clReleaseMemObject(Pmobj);
     ret = clReleaseCommandQueue(command_queue);
 
-     printf("clReleaseContext %s \n",getErrorString(ret));
     ret = clReleaseContext(context);
 
-    
-    return 0;
+    free(PRIME);
+
+    free(OPERATOR_WORDSIZE_BITSLENGHT_MPRIME);
+    mpz_clear(bigPrime);
+    return verified ? 0 : 1;
 }
 
-int testGpuResults(unsigned short* input1, unsigned short* input2, unsigned short* outputBytes, size_t K,  int OPERATOR, int DEBUG_MODE,  unsigned short* PRIME, int WORDLENGTH , mpz_t bigPrime){
-int result=1;   
-   // declare bigA and bigB outside loop 
-   mpz_t bigA;
-   mpz_t bigB;
+static int testGpuResults(const WORDT *input1, const WORDT *input2,
+                          const WORDT *outputBytes, size_t K, int OPERATOR,
+                          int DEBUG_MODE, const WORDT *PRIME, int WORDLENGTH,
+                          const mpz_t bigPrime, int wbits)
+{
+    const int outWords = (OPERATOR == MULTIPLYOPRANDSCANNING ||
+                          OPERATOR == MULTIPLYPRODUCTSCANNING)
+                         ? 2 * WORDLENGTH : WORDLENGTH;
+    const size_t items = K / (size_t)WORDLENGTH;
+    size_t i;
+    long bad = 0;
+    int rc = 1;
 
-   //Define TWOPOW_WL 
-   mpz_t TWOPOW_WL;
-   mpz_t RmoinsUn;
-   mpz_init(TWOPOW_WL);
-   mpz_init(RmoinsUn);
-   const unsigned short* TWOPOW_WLStr="10000000000000000000000000000000000000000000000000000000000000000";
-   mpz_set_str(TWOPOW_WL,TWOPOW_WLStr, 16);
-   
-   //mpz_out_str(stdout,16,TWOPOW_WL);
-   switch(WORDLENGTH){
-     case 512 : mpz_mul(TWOPOW_WL,TWOPOW_WL,TWOPOW_WL);
-     case 256 : mpz_mul(TWOPOW_WL,TWOPOW_WL,TWOPOW_WL);
-     case 128 : mpz_mul(TWOPOW_WL,TWOPOW_WL,TWOPOW_WL);
-     case 64 : mpz_mul(TWOPOW_WL,TWOPOW_WL,TWOPOW_WL);
-     case 32 : mpz_mul(TWOPOW_WL,TWOPOW_WL,TWOPOW_WL);
-     
-  
+    mpz_t a, b, want, lim, R, Rinv;
+    WORDT *expect = (WORDT *)malloc((size_t)outWords * sizeof(WORDT));
+    if (!expect) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
 
-   }
-   unsigned short* GMPBytes;
-// for tsets to be removed
-  /* mpz_sub_ui(TWOPOW_WL,TWOPOW_WL,1);
-  mpz_out_str(stdout,16,TWOPOW_WL);
-  printf("\n");
-  */
- // mpz_out_str(stdout,16,bigPrime);
- // printf("\n");
+    mpz_inits(a, b, want, lim, R, Rinv, NULL);
+    mpz_ui_pow_ui(lim, 2, (unsigned long)(wbits * WORDLENGTH));
+    mpz_set(R, lim);
+    if (OPERATOR == MONTGOMERYMULTIPLICATION) mpz_invert(Rinv, R, bigPrime);
 
-    
-   size_t* count;
-   count = (size_t*) malloc(sizeof(size_t));
+    for (i = 0; i < items; i++) {
+        int w, ok = 1;
+        mpaFromWords(a, &input1[i * (size_t)WORDLENGTH], WORDLENGTH, wbits);
+        mpaFromWords(b, &input2[i * (size_t)WORDLENGTH], WORDLENGTH, wbits);
 
-   unsigned short aBytes[WORDLENGTH];
-   unsigned short bBytes[WORDLENGTH];
-   unsigned short resultBytes[WORDLENGTH*2];
-   
-  if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) 
-   
-    GMPBytes=(unsigned short*)malloc(WORDLENGTH*2*sizeof(unsigned short));
-    
-  else 
-    
-    GMPBytes=(unsigned short*)malloc(WORDLENGTH*sizeof(unsigned short));
-  
-   
-
-
-for(size_t i=0;i<K/WORDLENGTH;i++){
-     if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) memcpy(resultBytes,&outputBytes[i*WORDLENGTH*2],sizeof(resultBytes) );
-   else memcpy(resultBytes,&outputBytes[i*WORDLENGTH],WORDLENGTH*sizeof(unsigned short) );
- 
-// copy the i th element
-memcpy(aBytes,&input1[i*WORDLENGTH],sizeof(aBytes)  );
-mpz_init(bigA);
-mpz_import(bigA, WORDLENGTH, 1, sizeof(aBytes[0]), 0, 0, aBytes);
-
-// copy the i th element
-memcpy(bBytes,&input2[i*WORDLENGTH],sizeof(bBytes) );
-mpz_init(bigB);
-mpz_import(bigB, WORDLENGTH, 1, sizeof(bBytes[0]), 0, 0, bBytes);
-
-
-
-if(OPERATOR==ADD){
-  
-// bigA=bigB+bigA
-mpz_add(bigA,bigB,bigA); 
-if(mpz_cmp(bigA,TWOPOW_WL)==1) mpz_sub(bigA,bigA,TWOPOW_WL);
-
-}
-if(OPERATOR==SUBTRACT){
-// bigA=bigA-bigB%PRIME
- mpz_sub(bigA,bigA,bigB);
-}
-if(OPERATOR==MONTGOMERYMULTIPLICATION){
-// R.modInverse(bigPrime).multiply(bigA).multiply(bigB).mod(bigPrime);
-    //  int mpz_invert (mpz_t rop, const mpz_t op1, const mpz_t op2)
-mpz_invert(RmoinsUn,TWOPOW_WL,bigPrime);
-mpz_mul(bigA,RmoinsUn,bigA);
-mpz_mul(bigA,bigA,bigB);
-mpz_mod(bigA,bigA,bigPrime);
-}
-if(OPERATOR==SUBTRACTMOD){
-// bigA=bigA-bigB%PRIME
- mpz_sub(bigA,bigA,bigB);
- mpz_mod(bigA,bigA,bigPrime);
-}
-if(OPERATOR==ADDMOD){
-// bigA=(bigA+bigB)%PRIME
- mpz_add(bigA,bigA,bigB);
- mpz_mod(bigA,bigA,bigPrime);
-}
-if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING){
-// bigA=bigB+bigA
-mpz_mul(bigA,bigB,bigA);
-
-}
-if((OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING))
-mpz_export(GMPBytes, count, -1, 2*WORDLENGTH*sizeof(unsigned short), 0, 0, bigA);
-else 
-  mpz_export(GMPBytes, count, -1, WORDLENGTH*sizeof(unsigned short), 0, 0, bigA);
-//mpz_export((void*)GMPBytes, count, 1, sizeof(unsigned short), 1, 0, bigB);
-// the bellow block should be uncommented in debug mod 
-if((OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING))
- { if(DEBUG_MODE!=0&&compareArray(resultBytes,GMPBytes,count[0],WORDLENGTH*2) != 0) {
-    printf("64 mult Error at index %zu\n", i);
-    result=0;
- printf("aBytes      = ");  printArray(aBytes,WORDLENGTH,0);
- printf("bBytes      = ");     printArray(bBytes,WORDLENGTH,0);
- printf("resultBytes = ");      printArray(resultBytes,WORDLENGTH*2,0);
- printf("GMPBytes    = ");     printArray(GMPBytes,WORDLENGTH*2,0);
- mpz_out_str(stdout,16,bigA);
-  printf ("\n");
-     break;
-        } 
-}
-else if(DEBUG_MODE!=0&&compareArray(resultBytes,GMPBytes,count[0],WORDLENGTH) != 0) {
-    printf("Error at index %zu\n", i);
-    result=0;
- printf("PRIME      = ");      printArray(PRIME,WORDLENGTH,0);
- printf("aBytes      = ");     printArray(aBytes,WORDLENGTH,0);
- printf("bBytes      = ");     printArray(bBytes,WORDLENGTH,0);
- printf("resultBytes = ");     printArray(resultBytes,WORDLENGTH,0);
- printf("GMPBytes    = ");     printArray(GMPBytes,WORDLENGTH,0);
- mpz_out_str(stdout,16,bigA);
-  printf ("\n");
-     break;
+        switch (OPERATOR) {
+        case ADD:         mpz_add(want, a, b); mpz_mod(want, want, lim); break;
+        case SUBTRACT:    mpz_sub(want, a, b); mpz_mod(want, want, lim); break;
+        case ADDMOD:      mpz_add(want, a, b); mpz_mod(want, want, bigPrime); break;
+        case SUBTRACTMOD: mpz_sub(want, a, b); mpz_mod(want, want, bigPrime); break;
+        case MULTIPLYOPRANDSCANNING:
+        case MULTIPLYPRODUCTSCANNING:
+                          mpz_mul(want, a, b); break;
+        case MONTGOMERYMULTIPLICATION:
+                          mpz_mul(want, a, b);
+                          mpz_mul(want, want, Rinv);
+                          mpz_mod(want, want, bigPrime);
+                          break;
+        default:
+            fprintf(stderr, "no reference for operator %d\n", OPERATOR);
+            rc = 0; goto done;
         }
 
-       
-   
- 
- 
+        mpaToWords(want, expect, outWords, wbits);
+        for (w = 0; w < outWords; w++)
+            if (outputBytes[i * (size_t)outWords + w] != expect[w]) { ok = 0; break; }
+
+        if (!ok) {
+            bad++;
+            rc = 0;
+            if (DEBUG_MODE && bad <= 3) {
+                printf(RED_TERMINAL "mismatch at item %zu" END_COLOR "\n", i);
+                gmp_printf("  a    = %Zx\n  b    = %Zx\n  want = %Zx\n", a, b, want);
+            }
+        }
+    }
+
+done:
+    if (bad)
+        printf(RED_TERMINAL "%s: %ld of %zu results WRONG" END_COLOR "\n",
+               decode(OPERATOR), bad, items);
+    mpz_clears(a, b, want, lim, R, Rinv, NULL);
+    free(expect);
+    return rc;
 }
-  mpz_clear(bigA);
-  mpz_clear(bigB);
-  mpz_clear(TWOPOW_WL);
-  free(count);
-  free(GMPBytes);
-  
- 
- return result;
-
-}
-
-
-

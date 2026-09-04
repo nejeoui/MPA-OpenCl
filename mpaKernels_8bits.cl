@@ -6,58 +6,35 @@
 #define MULTIPLYOPRANDSCANNING 5
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
-#define ARITHMETICS 8
 #include <mpaKernels_8bits.h>
 
-void arithmetics(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes, const size_t ID, __private unsigned char PRIME[]){
-  int i;
-  addMod(input1,input2,outputBytes,ID,PRIME);
-  for(i=0;i<1000;i++){
-    addMod(input1,outputBytes,outputBytes,ID,PRIME);
-    addMod(input2,outputBytes,outputBytes,ID,PRIME);
-    addMod(outputBytes,outputBytes,outputBytes,ID,PRIME);
-}
-}
-
-// use mul_hi 
 void addPrime(__global unsigned char*  outputBytes, const size_t ID, __private unsigned char PRIME[]){
-    int carry = 0;
-    int somme = 0;
+    uint carry = 0;
     int i=0;
-    for ( i = WORDLENGTH_T-1; i >= 0; i--) 
+    for ( i = WORDLENGTH_T-1; i >= 0; i--)
     {
         const size_t index=ID*WORDLENGTH_T+i;
-        somme = (uint)outputBytes[index] + (uint)PRIME[i] + carry;
-        carry = 0;
-        if (somme >= TWOPOW_W) {
-            somme -= TWOPOW_W;
-            carry = 1;
-        }
-        outputBytes[index] =(unsigned char) somme;
+        const uint somme = (uint)outputBytes[index] + (uint)PRIME[i] + (uint)carry;
+        outputBytes[index] = (unsigned char)somme;
+        carry = (uint)(somme >> 8);
     }
 }
 
 void subtractPrime(__global unsigned char*  outputBytes, const size_t ID,__private unsigned char PRIME[]){
-    int borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i=0;
     for ( i = WORDLENGTH_T-1; i >= 0; i--) {
         const size_t index=ID*WORDLENGTH_T+i;
-        diff = (uint)outputBytes[index] - (uint)PRIME[i] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
+        const uint diff = (uint)outputBytes[index] - (uint)PRIME[i] - (uint)borrow;
         outputBytes[index] = (unsigned char)diff;
+        borrow = (uint)((diff >> 8) & 1u);
     }
-
 }
 
 char compareWithPrime(__global unsigned char*  outputBytes, const size_t ID, __private unsigned char PRIME[]){
-    
+
 int i=0;
-for ( i = 0; i < WORDLENGTH_T; i++) 
+for ( i = 0; i < WORDLENGTH_T; i++)
 {
     const size_t index=ID*WORDLENGTH_T+i;
         if (outputBytes[index] > PRIME[i])
@@ -69,23 +46,16 @@ for ( i = 0; i < WORDLENGTH_T; i++)
 
 }
 
-
 void add(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes, const size_t ID)
 {
-    int carry = 0;
-    int somme = 0;
+    uint carry = 0;
     int i=0;
     for (i=WORDLENGTH_T-1; i >= 0 ; i--)
     {
         const size_t index=ID*WORDLENGTH_T+i;
-        somme = (uint)input1[index] + (uint)input2[index] + carry;
-        carry = 0;
-        if (somme >= TWOPOW_W) {
-            somme %= TWOPOW_W;
-            carry = 1;
-        }
-        outputBytes[index] =(unsigned char) somme;
-        
+        const uint somme = (uint)carry + (uint)input1[index] + (uint)input2[index];
+        outputBytes[index] = (unsigned char)somme;
+        carry = (uint)(somme >> 8);
     }
 }
 
@@ -95,9 +65,9 @@ void multiplyOperandScanning(__global unsigned char* input1, __global unsigned c
     unsigned long int U=0;
     unsigned long int V=0;
     int i;
-    for( i=2*WORDLENGTH_T-1;i>=0;i--) 
+    for( i=2*WORDLENGTH_T-1;i>=0;i--)
         outputBytes[ID*2*WORDLENGTH_T+i]=0;
-    
+
     for( i=WORDLENGTH_T-1;i>=0;i--) {
         U=0;
         const size_t indexI=ID*WORDLENGTH_T+i;
@@ -107,7 +77,7 @@ void multiplyOperandScanning(__global unsigned char* input1, __global unsigned c
             UV=(uint)outputBytes[ID*2*WORDLENGTH_T+i+j+1]+((uint)input1[indexI])*((uint)input2[indexJ])+U;
             U=(UV&0xFF00)>>8;
             V=UV&0xFF;
-            
+
             outputBytes[ID*2*WORDLENGTH_T+ i+j+1]=(unsigned char)V;
         }
         outputBytes[ID*2*WORDLENGTH_T+ i]=(unsigned char)U;
@@ -123,108 +93,72 @@ int MIN(int x,int y) {
 }
 void multiplyProductScanning(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes, const size_t ID)
 {
-    unsigned long int UV=0;
-    unsigned long int U=0;
-    unsigned long int V=0;
+    ulong carry = 0;
     int k;
    for( k=2*WORDLENGTH_T-2;k>=0;k--) {
-        UV=0;
+        ulong acc = carry;
         int i;
-        for( i=MAX(0,k-WORDLENGTH_T+1);i<=MIN(k,WORDLENGTH_T-1);i++) 
-            UV+=(uint)input1[ID*WORDLENGTH_T+i]* (uint)input2[ID*WORDLENGTH_T+k-i];
-        UV=UV+U;
-        U=(UV&0xFFFF00)>>8;
-        V=UV&0xFF;
-        outputBytes[ID*2*WORDLENGTH_T+ k+1]=(unsigned char)V;
-        
+        for( i=MAX(0,k-WORDLENGTH_T+1);i<=MIN(k,WORDLENGTH_T-1);i++)
+            acc += ((ulong)input1[ID*WORDLENGTH_T+i]) * ((ulong)input2[ID*WORDLENGTH_T+k-i]);
+        outputBytes[ID*2*WORDLENGTH_T+ k+1]=(unsigned char)(acc & 0xFF);
+        carry = acc >> 8;
     }
-    outputBytes[ID*2*WORDLENGTH_T]=(unsigned char)U;
+    outputBytes[ID*2*WORDLENGTH_T]=(unsigned char)carry;
 }
- 
+
 void subtractPositive(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes, const size_t ID)
 {
-    
-    char borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i=0;
     for (i = WORDLENGTH_T-1; i >= 0; i--) {
          const size_t index=ID*WORDLENGTH_T+i;
-        diff = (uint)input1[index] - (uint)input2[index] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
-        outputBytes[index] =(unsigned char) diff;
+        const uint diff = (uint)input1[index] - (uint)input2[index] - (uint)borrow;
+        outputBytes[index] = (unsigned char)diff;
+        borrow = (uint)((diff >> 8) & 1u);
     }
-    
-   
 }
 
  void addMod(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes, const size_t ID, __private unsigned char PRIME[])
 {
-   
-   
-    char carry = 0;
-    int somme = 0;
+    uint carry = 0;
     int i=0;
 
-    for ( i = WORDLENGTH_T-1; i >= 0; i--) 
+    for ( i = WORDLENGTH_T-1; i >= 0; i--)
     {
        const size_t index=ID*WORDLENGTH_T+i;
-        somme = (uint)input1[index] + (uint)input2[index] + carry;
-        carry = 0;
-        if (somme >= TWOPOW_W) {
-            somme -= TWOPOW_W;
-            carry = 1;
-        }
-        outputBytes[index] =(unsigned char) somme;
+        const uint somme = (uint)input1[index] + (uint)input2[index] + (uint)carry;
+        outputBytes[index] = (unsigned char)somme;
+        carry = (uint)(somme >> 8);
     }
-    
+
     if (carry == 1) {
-        
         subtractPrime(outputBytes,ID,PRIME);
     }
-    
-    else if(compareWithPrime( outputBytes,ID,PRIME)==1) {
-        
+    else if(compareWithPrime( outputBytes,ID,PRIME)>=0) {
         subtractPrime(outputBytes,ID,PRIME);
     }
-    
-    
 }
-
-
 
  void subtractMod(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes, const size_t ID,  __private unsigned char PRIME[])
 {
-   char borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i=0;
-    for ( i = WORDLENGTH_T-1; i >= 0; i--) 
+    for ( i = WORDLENGTH_T-1; i >= 0; i--)
     {
         const size_t  index=ID*WORDLENGTH_T+i;
-        diff = (uint)input1[index] - (uint)input2[index] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
-        
-        outputBytes[index] =(unsigned char) diff;
+        const uint diff = (uint)input1[index] - (uint)input2[index] - (uint)borrow;
+        outputBytes[index] = (unsigned char)diff;
+        borrow = (uint)((diff >> 8) & 1u);
     }
     if (borrow == 1) {
         addPrime(outputBytes,ID,PRIME);
     }
-    
-    
-} 
+}
 
   void montgomeryMultiplication(__global unsigned char*  x,__global unsigned char* y,__global unsigned char* result,const size_t ID,__private unsigned char PRIME[],const unsigned int m_prime) {
     __private   unsigned char resultPrivate[WORDLENGTH_T+1];
     __private   unsigned char xiy[WORDLENGTH_T+1];
     __private   unsigned char Aplusxiy[WORDLENGTH_T+2];
-    
 
     __private   unsigned char cteUI[WORDLENGTH_T+1];
     int i;
@@ -233,9 +167,9 @@ void subtractPositive(__global unsigned char* input1, __global unsigned char* in
 resultPrivate[i]=0;
             xiy[i]=0;
        Aplusxiy[i]=0;
-          
+
  }
- 
+
  Aplusxiy[WORDLENGTH_T+1]=0;
     for( i=WORDLENGTH_T-1;i>=0;i--) {
         size_t xindex=i+WORDLENGTH_T*ID;
@@ -244,9 +178,9 @@ resultPrivate[i]=0;
         addNoOverFlowPrivate_XIY(resultPrivate,xiy,Aplusxiy);
         addNoOverFlowPrivateAplusxiy(ui,Aplusxiy,cteUI,PRIME);
         rightShiftFormby1InResultPriv(Aplusxiy,resultPrivate);
-        
+
     }
-    if(compareResultPrivPrime(resultPrivate,PRIME)==1) subtractPositiveResultPrivate(resultPrivate,PRIME);
+    if(compareResultPrivPrime(resultPrivate,PRIME)>=0) subtractPositiveResultPrivate(resultPrivate,PRIME);
     copyResultPrivTo(result,resultPrivate,ID);
 }
 
@@ -255,25 +189,19 @@ resultPrivate[i]=0;
     for( i=0;i<WORDLENGTH_T+1;i++) resultPrivate[i]=Aplusxiy[i];
 }
 void subtractPositiveResultPrivate(__private unsigned char resultPrivate[],__private unsigned char PRIME[]){
-    int borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i;
     for ( i = WORDLENGTH_T-1; i >= 0; i--) {
-        
-        diff = (uint)resultPrivate[i+1] - (uint)PRIME[i] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
+        const uint diff = (uint)resultPrivate[i+1] - (uint)PRIME[i] - (uint)borrow;
         resultPrivate[i+1] = (unsigned char)diff;
+        borrow = (uint)((diff >> 8) & 1u);
     }
     resultPrivate[0]=(unsigned char)(resultPrivate[0]-borrow);
 }
 int compareResultPrivPrime(__private unsigned char resultPrivate[],__private unsigned char PRIME[]){
     int i;
     if (resultPrivate[0]!=0) return 1;
-    else 
+    else
     for ( i = 0; i < WORDLENGTH_T; i++) {
         if (resultPrivate[i+1] >PRIME[i])
             return 1;
@@ -284,28 +212,28 @@ int compareResultPrivPrime(__private unsigned char resultPrivate[],__private uns
 }
 
  void multiplyNoOverFlow1xWORDLENGTH(unsigned char n,const size_t ID,__global unsigned char* y,__private unsigned char xiy[]) {
-    
+
         int alength=WORDLENGTH_T;
     unsigned long int UV=0;
     unsigned long int U=0;
     unsigned long int V=0;
     int i;
-        for( i=alength;i>=0;i--) 
+        for( i=alength;i>=0;i--)
             xiy[i]=0;
-       
-        for( i=alength-1;i>=0;i--) 
+
+        for( i=alength-1;i>=0;i--)
         {
             U=0;
              {
                 UV=(uint)xiy[i+1]+ ((uint)y[WORDLENGTH_T*ID+i])*n + U;
                 U=(UV&0xFF00)>>8;
                 V=UV&0xFF;
-                
+
                 xiy[i+1]=(unsigned char)V;
             }
             xiy[i]=(unsigned char)U;
         }
-    
+
 }
 
  void addNoOverFlowPrivate_XIY(__private unsigned char resultPrivate[],__private unsigned char xiy[],__private unsigned char Aplusxiy[]) {
@@ -313,7 +241,7 @@ int compareResultPrivPrime(__private unsigned char resultPrivate[],__private uns
    unsigned  int somme = 0;
 
     int i;
-    for ( i = WORDLENGTH_T; i >= 0; i--) 
+    for ( i = WORDLENGTH_T; i >= 0; i--)
     {
         somme = (uint)resultPrivate[i] + (uint)xiy[i]  + carry;
         carry = 0;
@@ -327,13 +255,13 @@ int compareResultPrivPrime(__private unsigned char resultPrivate[],__private uns
 }
 
  void addNoOverFlowPrivateAplusxiy(unsigned int ui,__private unsigned char Aplusxiy[],__private unsigned char cteUI[],__private unsigned char PRIME[]) {
-    
+
     unsigned int carry = 0;
     unsigned int somme = 0;
-    
+
     multiplyNoOverFlowCte(ui,cteUI,PRIME);
     int i;
-    for ( i = WORDLENGTH_T+1; i >= 1; i--) 
+    for ( i = WORDLENGTH_T+1; i >= 1; i--)
     {
         somme = (uint)Aplusxiy[i] + (uint)cteUI[i-1]  + carry;
         carry = 0;
@@ -350,48 +278,47 @@ int compareResultPrivPrime(__private unsigned char resultPrivate[],__private uns
         carry = 1;
     }
     Aplusxiy[0] = (unsigned char)somme;
-    
+
 }
 
-  void multiplyNoOverFlowCte(int n,__private unsigned char cteUI[],__private unsigned char PRIME[]) {
+  void multiplyNoOverFlowCte(uint n,__private unsigned char cteUI[],__private unsigned char PRIME[]) {
     int alength=WORDLENGTH_T;
     unsigned long int UV=0;
     unsigned long int U=0;
     unsigned long int V=0;
         int i;
-        for( i=alength;i>=0;i--) 
+        for( i=alength;i>=0;i--)
             cteUI[i]=0;
-        
+
         for( i=alength-1;i>=0;i--) {
             U=0;
              {
-                
+
                 UV=(uint)cteUI[i+1] + n*((uint)PRIME[i]) + U;
                 U=(UV&0xFF00)>>8;
                 V=UV&0xFF;
-                
 
                 cteUI[i+1]=(unsigned char)V;
             }
              cteUI[i]=(unsigned char)U;
         }
-        
+
     }
 
      void copyResultPrivTo(__global unsigned char*  outputBytes,__private unsigned char resultPrivate[] ,const size_t ID) {
         int i;
     for ( i = WORDLENGTH_T-1; i >= 0; i--) outputBytes[ID*WORDLENGTH_T+i]=    resultPrivate[i+1];
-    
+
 }
 
 __kernel void mpaKernel(__global unsigned char* input1, __global unsigned char* input2, __global unsigned char* outputBytes,__constant  int* OPERATOR_WORDSIZE_BITSLENGHT_MPRIME, __constant unsigned char* globalPRIME)
 {
-    
-    const int m_prime=OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3];
-    
-   // __private  unsigned char PRIME[WORDLENGTH_T];
-  //  for(int i=0;i<WORDLENGTH_T;i++) PRIME[i]=globalPRIME[i];
-    __private  unsigned char PRIME[32]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFE,0xFF,0xFF,0xFC,0x2F};
+
+    const uint m_prime=(uint)OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3];
+
+    __private  unsigned char PRIME[WORDLENGTH_T];
+    int i;
+    for( i=0;i<WORDLENGTH_T;i++) PRIME[i]=globalPRIME[i];
     const size_t ID=get_global_id(0);
     switch(OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[0]){
         case ADD : add(input1,input2,outputBytes,ID);
@@ -406,13 +333,13 @@ __kernel void mpaKernel(__global unsigned char* input1, __global unsigned char* 
                 break;
         case MULTIPLYPRODUCTSCANNING : multiplyProductScanning(input1,input2,outputBytes,ID);
                 break;
-        case MONTGOMERYMULTIPLICATION :  
+        case MONTGOMERYMULTIPLICATION :
          montgomeryMultiplication(input1,input2,outputBytes,ID,PRIME,m_prime);
                break;
-        case ARITHMETICS : arithmetics(input1,input2,outputBytes,ID,PRIME);
-               break;
+        default :
+            for( i=0;i<WORDLENGTH_T;i++) outputBytes[ID*WORDLENGTH_T+i]=(unsigned char)0xFF;
+        break;
 
     }
-    
 
-}  
+}

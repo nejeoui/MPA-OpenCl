@@ -8,45 +8,33 @@
 #define MONTGOMERYMULTIPLICATION 7
 #include <mpaKernel_16bits.h>
 
-// use mul_hi 
 void addPrime(__global ushort*  outputBytes, const size_t ID, __private ushort PRIME[]){
     uint carry = 0;
-    uint somme = 0;
     int i=0;
-    for ( i = WORDLENGTH_T-1; i >= 0; i--) 
+    for ( i = WORDLENGTH_T-1; i >= 0; i--)
     {
         const size_t index=ID*WORDLENGTH_T+i;
-        somme = carry+(uint)outputBytes[index] + (uint)PRIME[i] ;
-        carry = 0;
-        if (somme >= TWOPOW_W) {
-            somme -= TWOPOW_W;
-            carry = 1;
-        }
-        outputBytes[index] =(ushort) somme;
+        const uint somme = (uint)outputBytes[index] + (uint)PRIME[i] + (uint)carry;
+        outputBytes[index] = (ushort)somme;
+        carry = (uint)(somme >> 16);
     }
 }
 
 void subtractPrime(__global ushort*  outputBytes, const size_t ID,__private ushort PRIME[]){
-    int borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i=0;
     for ( i = WORDLENGTH_T-1; i >= 0; i--) {
         const size_t index=ID*WORDLENGTH_T+i;
-        diff = (uint)outputBytes[index] - (uint)PRIME[i] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
+        const uint diff = (uint)outputBytes[index] - (uint)PRIME[i] - (uint)borrow;
         outputBytes[index] = (ushort)diff;
+        borrow = (uint)((diff >> 16) & 1u);
     }
-
 }
 
 char compareWithPrime(__global ushort*  outputBytes, const size_t ID, __private ushort PRIME[]){
-    
+
 int i=0;
-for ( i = 0; i < WORDLENGTH_T; i++) 
+for ( i = 0; i < WORDLENGTH_T; i++)
 {
     const size_t index=ID*WORDLENGTH_T+i;
         if (outputBytes[index] > PRIME[i])
@@ -58,23 +46,16 @@ for ( i = 0; i < WORDLENGTH_T; i++)
 
 }
 
-
 void add(__global ushort* input1, __global ushort* input2, __global ushort* outputBytes, const size_t ID)
 {
     uint carry = 0;
-    int somme = 0;
     int i=0;
     for (i=WORDLENGTH_T-1; i >= 0 ; i--)
     {
         const size_t index=ID*WORDLENGTH_T+i;
-        somme = carry + (uint)input1[index] + (uint)input2[index];
-        carry = 0;
-        if (somme >= TWOPOW_W) {
-            somme -= TWOPOW_W;
-            carry = 1;
-        }
-        outputBytes[index] =(ushort) somme;
-        
+        const uint somme = (uint)carry + (uint)input1[index] + (uint)input2[index];
+        outputBytes[index] = (ushort)somme;
+        carry = (uint)(somme >> 16);
     }
 }
 
@@ -84,9 +65,9 @@ void multiplyOperandScanning(__global ushort* input1, __global ushort* input2, _
     unsigned long int U=0;
     unsigned long int V=0;
     int i;
-    for( i=2*WORDLENGTH_T-1;i>=0;i--) 
+    for( i=2*WORDLENGTH_T-1;i>=0;i--)
         outputBytes[ID*2*WORDLENGTH_T+i]=0;
-    
+
     for( i=WORDLENGTH_T-1;i>=0;i--) {
         U=0;
         const size_t indexI=ID*WORDLENGTH_T+i;
@@ -96,7 +77,7 @@ void multiplyOperandScanning(__global ushort* input1, __global ushort* input2, _
             UV= (uint)outputBytes[ID*2*WORDLENGTH_T+i+j+1]+ ((uint)input1[indexI])*input2[indexJ]+U;
             U=(UV&0xFFFF0000)>>16;
             V=UV&0xFFFF;
-            
+
             outputBytes[ID*2*WORDLENGTH_T+ i+j+1]=(ushort)V;
         }
         outputBytes[ID*2*WORDLENGTH_T+ i]=(ushort)U;
@@ -112,108 +93,72 @@ int MIN(int x,int y) {
 }
 void multiplyProductScanning(__global ushort* input1, __global ushort* input2, __global ushort* outputBytes, const size_t ID)
 {
-    unsigned long int UV=0;
-    unsigned long int U=0;
-    unsigned long int V=0;
+    ulong carry = 0;
     int k;
    for( k=2*WORDLENGTH_T-2;k>=0;k--) {
-        UV=0;
+        ulong acc = carry;
         int i;
-        for( i=MAX(0,k-WORDLENGTH_T+1);i<=MIN(k,WORDLENGTH_T-1);i++) 
-            UV+=input1[ID*WORDLENGTH_T+i]*input2[ID*WORDLENGTH_T+k-i];
-        UV=UV+U;
-        U=(UV&0xFFFF0000)>>16;
-        V=UV&0xFFFF;
-        outputBytes[ID*2*WORDLENGTH_T+ k+1]=(ushort)V;
-        
+        for( i=MAX(0,k-WORDLENGTH_T+1);i<=MIN(k,WORDLENGTH_T-1);i++)
+            acc += ((ulong)input1[ID*WORDLENGTH_T+i]) * ((ulong)input2[ID*WORDLENGTH_T+k-i]);
+        outputBytes[ID*2*WORDLENGTH_T+ k+1]=(ushort)(acc & 0xFFFF);
+        carry = acc >> 16;
     }
-    outputBytes[ID*2*WORDLENGTH_T]=(ushort)U;
+    outputBytes[ID*2*WORDLENGTH_T]=(ushort)carry;
 }
- 
+
 void subtractPositive(__global ushort* input1, __global ushort* input2, __global ushort* outputBytes, const size_t ID)
 {
-    
-    int borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i=0;
     for (i = WORDLENGTH_T-1; i >= 0; i--) {
          const size_t index=ID*WORDLENGTH_T+i;
-        diff = (uint)input1[index] - (uint)input2[index] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
-        outputBytes[index] =(ushort) diff;
+        const uint diff = (uint)input1[index] - (uint)input2[index] - (uint)borrow;
+        outputBytes[index] = (ushort)diff;
+        borrow = (uint)((diff >> 16) & 1u);
     }
-    
-   
 }
 
  void addMod(__global ushort* input1, __global ushort* input2, __global ushort* outputBytes, const size_t ID, __private ushort PRIME[])
 {
-   
-   
-    int carry = 0;
-    int somme = 0;
+    uint carry = 0;
     int i=0;
 
-    for ( i = WORDLENGTH_T-1; i >= 0; i--) 
+    for ( i = WORDLENGTH_T-1; i >= 0; i--)
     {
        const size_t index=ID*WORDLENGTH_T+i;
-        somme = (uint)input1[index] + (uint)input2[index] + carry;
-        carry = 0;
-        if (somme >= TWOPOW_W) {
-            somme -= TWOPOW_W;
-            carry = 1;
-        }
-        outputBytes[index] =(ushort) somme;
+        const uint somme = (uint)input1[index] + (uint)input2[index] + (uint)carry;
+        outputBytes[index] = (ushort)somme;
+        carry = (uint)(somme >> 16);
     }
-    
+
     if (carry == 1) {
-        
         subtractPrime(outputBytes,ID,PRIME);
     }
-    
-    else if(compareWithPrime( outputBytes,ID,PRIME)==1) {
-        
+    else if(compareWithPrime( outputBytes,ID,PRIME)>=0) {
         subtractPrime(outputBytes,ID,PRIME);
     }
-    
-    
 }
-
-
 
  void subtractMod(__global ushort* input1, __global ushort* input2, __global ushort* outputBytes, const size_t ID,  __private ushort PRIME[])
 {
-   int borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i=0;
-    for ( i = WORDLENGTH_T-1; i >= 0; i--) 
+    for ( i = WORDLENGTH_T-1; i >= 0; i--)
     {
         const size_t  index=ID*WORDLENGTH_T+i;
-        diff = (uint)input1[index] - (uint)input2[index] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
-        
-        outputBytes[index] =(ushort) diff;
+        const uint diff = (uint)input1[index] - (uint)input2[index] - (uint)borrow;
+        outputBytes[index] = (ushort)diff;
+        borrow = (uint)((diff >> 16) & 1u);
     }
     if (borrow == 1) {
         addPrime(outputBytes,ID,PRIME);
     }
-    
-    
-} 
+}
 
   void montgomeryMultiplication(__global ushort*  x,__global ushort* y,__global ushort* result,const size_t ID,__private ushort PRIME[],const unsigned int m_prime) {
     __private   ushort resultPrivate[WORDLENGTH_T+1];
     __private   ushort xiy[WORDLENGTH_T+1];
     __private   ushort Aplusxiy[WORDLENGTH_T+2];
-    
 
     __private   ushort cteUI[WORDLENGTH_T+1];
     int i;
@@ -222,9 +167,9 @@ void subtractPositive(__global ushort* input1, __global ushort* input2, __global
 resultPrivate[i]=0;
             xiy[i]=0;
        Aplusxiy[i]=0;
-          
+
  }
- 
+
  Aplusxiy[WORDLENGTH_T+1]=0;
     for( i=WORDLENGTH_T-1;i>=0;i--) {
         size_t xindex=i+WORDLENGTH_T*ID;
@@ -233,9 +178,9 @@ resultPrivate[i]=0;
         addNoOverFlowPrivate_XIY(resultPrivate,xiy,Aplusxiy);
         addNoOverFlowPrivateAplusxiy(ui,Aplusxiy,cteUI,PRIME);
         rightShiftFormby1InResultPriv(Aplusxiy,resultPrivate);
-        
+
     }
-    if(compareResultPrivPrime(resultPrivate,PRIME)==1) subtractPositiveResultPrivate(resultPrivate,PRIME);
+    if(compareResultPrivPrime(resultPrivate,PRIME)>=0) subtractPositiveResultPrivate(resultPrivate,PRIME);
     copyResultPrivTo(result,resultPrivate,ID);
 }
 
@@ -244,25 +189,19 @@ resultPrivate[i]=0;
     for( i=0;i<WORDLENGTH_T+1;i++) resultPrivate[i]=Aplusxiy[i];
 }
 void subtractPositiveResultPrivate(__private ushort resultPrivate[],__private ushort PRIME[]){
-    int borrow = 0;
-    int diff = 0;
+    uint borrow = 0;
     int i;
     for ( i = WORDLENGTH_T-1; i >= 0; i--) {
-        
-        diff = (uint)resultPrivate[i+1] - (uint)PRIME[i] - borrow;
-        borrow = 0;
-        if (diff < 0) {
-            diff += TWOPOW_W;
-            borrow = 1;
-        }
+        const uint diff = (uint)resultPrivate[i+1] - (uint)PRIME[i] - (uint)borrow;
         resultPrivate[i+1] = (ushort)diff;
+        borrow = (uint)((diff >> 16) & 1u);
     }
     resultPrivate[0]=(ushort)(resultPrivate[0]-borrow);
 }
 int compareResultPrivPrime(__private ushort resultPrivate[],__private ushort PRIME[]){
     int i;
     if (resultPrivate[0]!=0) return 1;
-    else 
+    else
     for ( i = 0; i < WORDLENGTH_T; i++) {
         if (resultPrivate[i+1] >PRIME[i])
             return 1;
@@ -273,28 +212,28 @@ int compareResultPrivPrime(__private ushort resultPrivate[],__private ushort PRI
 }
 
  void multiplyNoOverFlow1xWORDLENGTH(ushort n,const size_t ID,__global ushort* y,__private ushort xiy[]) {
-    
+
         int alength=WORDLENGTH_T;
     unsigned long int UV=0;
     unsigned long int U=0;
     unsigned long int V=0;
     int i;
-        for( i=alength;i>=0;i--) 
+        for( i=alength;i>=0;i--)
             xiy[i]=0;
-       
-        for( i=alength-1;i>=0;i--) 
+
+        for( i=alength-1;i>=0;i--)
         {
             U=0;
              {
                 UV=(uint)xiy[i+1]+ ((uint)y[WORDLENGTH_T*ID+i])*n + U;
                 U=(UV&0x00000000FFFF0000)>>16;
                 V=(ushort)UV;
-                
+
                 xiy[i+1]=(ushort)V;
             }
             xiy[i]=(ushort)U;
         }
-    
+
 }
 
  void addNoOverFlowPrivate_XIY(__private ushort resultPrivate[],__private ushort xiy[],__private ushort Aplusxiy[]) {
@@ -302,7 +241,7 @@ int compareResultPrivPrime(__private ushort resultPrivate[],__private ushort PRI
    unsigned  int somme = 0;
 
     int i;
-    for ( i = WORDLENGTH_T; i >= 0; i--) 
+    for ( i = WORDLENGTH_T; i >= 0; i--)
     {
         somme = (uint)resultPrivate[i] + (uint)xiy[i]  + carry;
         carry = 0;
@@ -316,13 +255,13 @@ int compareResultPrivPrime(__private ushort resultPrivate[],__private ushort PRI
 }
 
  void addNoOverFlowPrivateAplusxiy(unsigned int ui,__private ushort Aplusxiy[],__private ushort cteUI[],__private ushort PRIME[]) {
-    
+
     unsigned int carry = 0;
     unsigned int somme = 0;
-    
+
     multiplyNoOverFlowCte(ui,cteUI,PRIME);
     int i;
-    for ( i = WORDLENGTH_T+1; i >= 1; i--) 
+    for ( i = WORDLENGTH_T+1; i >= 1; i--)
     {
         somme = (uint)Aplusxiy[i] + (uint)cteUI[i-1]  + carry;
         carry = 0;
@@ -339,47 +278,47 @@ int compareResultPrivPrime(__private ushort resultPrivate[],__private ushort PRI
         carry = 1;
     }
     Aplusxiy[0] = (ushort)somme;
-    
+
 }
 
-  void multiplyNoOverFlowCte(int n,__private ushort cteUI[],__private ushort PRIME[]) {
+  void multiplyNoOverFlowCte(uint n,__private ushort cteUI[],__private ushort PRIME[]) {
     int alength=WORDLENGTH_T;
     unsigned long int UV=0;
     unsigned long int U=0;
     unsigned long int V=0;
         int i;
-        for( i=alength;i>=0;i--) 
+        for( i=alength;i>=0;i--)
             cteUI[i]=0;
-        
+
         for( i=alength-1;i>=0;i--) {
             U=0;
              {
-                
+
                 UV=(uint)cteUI[i+1] + n*((uint)PRIME[i]) + U;
                 U=(UV&0x00000000FFFF0000)>>16;
                 V=(ushort)UV;
-                
 
                 cteUI[i+1]=(ushort)V;
             }
              cteUI[i]=(ushort)U;
         }
-        
+
     }
 
      void copyResultPrivTo(__global ushort*  outputBytes,__private ushort resultPrivate[] ,const size_t ID) {
         int i;
     for ( i = WORDLENGTH_T-1; i >= 0; i--) outputBytes[ID*WORDLENGTH_T+i]=    resultPrivate[i+1];
-    
+
 }
 
 __kernel void mpaKernel(__global ushort* input1, __global ushort* input2, __global ushort* outputBytes,__constant  int* OPERATOR_WORDSIZE_BITSLENGHT_MPRIME, __constant ushort* globalPRIME)
 {
-    
-    const int m_prime=OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3];
-    
-    __private  ushort PRIME[16]={0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xffff,0xfffe,0xffff,0xfc2f,};
-   // for(int i=0;i<WORDLENGTH_T;i++) PRIME[i]=globalPRIME[i];
+
+    const uint m_prime=(uint)OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3];
+
+    __private  ushort PRIME[WORDLENGTH_T];
+    int i;
+    for( i=0;i<WORDLENGTH_T;i++) PRIME[i]=globalPRIME[i];
     const size_t ID=get_global_id(0);
     switch(OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[0]){
         case ADD : add(input1,input2,outputBytes,ID);
@@ -394,13 +333,13 @@ __kernel void mpaKernel(__global ushort* input1, __global ushort* input2, __glob
                 break;
         case MULTIPLYPRODUCTSCANNING : multiplyProductScanning(input1,input2,outputBytes,ID);
                 break;
-        case MONTGOMERYMULTIPLICATION :  
+        case MONTGOMERYMULTIPLICATION :
          montgomeryMultiplication(input1,input2,outputBytes,ID,PRIME,m_prime);
         break;
-        
+        default :
+            for( i=0;i<WORDLENGTH_T;i++) outputBytes[ID*WORDLENGTH_T+i]=(ushort)0xFFFF;
+        break;
 
     }
-    
 
-}  
-
+}

@@ -1,4 +1,6 @@
+#ifndef WORDLENGTH_T
 #define WORDLENGTH_T 8
+#endif
 void addPrime(__global uint*  outputBytes, const size_t ID, __private uint PRIME[]);
 void subtractPrime(__global uint*  outputBytes, const size_t ID,__private uint PRIME[]);
 char compareWithPrime(__global uint*  outputBytes, const size_t ID, __private uint PRIME[]);
@@ -16,6 +18,6 @@ void subtractPositiveResultPrivate(__private uint resultPrivate[],__private uint
 int  compareResultPrivPrime(__private uint resultPrivate[],__private uint PRIME[]);
 void multiplyNoOverFlow1xWORDLENGTH(uint n,const size_t ID,__global uint* y,__private uint xiy[]) ;
 void addNoOverFlowPrivate_XIY(__private uint resultPrivate[],__private uint xiy[],__private uint Aplusxiy[]);
-void addNoOverFlowPrivateAplusxiy(ulong ui,__private uint Aplusxiy[],__private uint cteUI[], __private uint PRIME[]);
-void multiplyNoOverFlowCte(int n,__private uint cteUI[],__private uint PRIME[]);
+void addNoOverFlowPrivateAplusxiy(uint ui,__private uint Aplusxiy[],__private uint cteUI[], __private uint PRIME[]);
+void multiplyNoOverFlowCte(uint n,__private uint cteUI[],__private uint PRIME[]);
 void copyResultPrivTo(__global uint*  result,__private uint resultPrivate[] ,const size_t ID);
