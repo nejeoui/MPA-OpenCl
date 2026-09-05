@@ -207,14 +207,6 @@ static void enumerateDevices(const char *want)
     }
     free(plats);
 
-    if (getenv("MPA_FAKE_CPU_DEVICE") && g_ndev == 1 && g_ndev < MAXDEV) {
-        g_devs[1] = g_devs[0];
-        g_devs[1].isGpu = 0;
-        g_devs[1].type = CL_DEVICE_TYPE_CPU;
-        snprintf(g_devs[1].name, sizeof g_devs[1].name, "%s (posing as CPU)", g_devs[0].name);
-        g_ndev = 2;
-    }
-
     g_primary = 0;
     for (int i = 0; i < g_ndev; i++)
         if (g_devs[i].isGpu) { g_primary = i; break; }
