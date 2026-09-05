@@ -20,7 +20,7 @@
 #define SUBTRACT                 2
 #define ADDMOD                   3
 #define SUBTRACTMOD              4
-#define MULTIPLYOPRANDSCANNING   5
+#define MULTIPLYOPERANDSCANNING   5
 #define MULTIPLYPRODUCTSCANNING  6
 #define MONTGOMERYMULTIPLICATION 7
 #define COMPARE 8
@@ -256,7 +256,7 @@ static const Op OPS[] = {
     { SUBTRACT,                 "SUBTRACT",                0, 0, 0,  1 },
     { ADDMOD,                   "ADDMOD",                  0, 1, 0,  1 },
     { SUBTRACTMOD,              "SUBTRACTMOD",             0, 1, 0,  1 },
-    { MULTIPLYOPRANDSCANNING,   "MULTIPLYOPERANDSCANNING", 1, 0, 0,  1 },
+    { MULTIPLYOPERANDSCANNING,   "MULTIPLYOPERANDSCANNING", 1, 0, 0,  1 },
     { MULTIPLYPRODUCTSCANNING,  "MULTIPLYPRODUCTSCANNING", 1, 0, 0,  1 },
     { MONTGOMERYMULTIPLICATION, "MONTGOMERYMULTIPLICATION",0, 1, 0,  1 },
     { COMPARE,                  "COMPARE",                 0, 0, 1,  1 },
@@ -385,7 +385,7 @@ static void reference(int op, const mpz_t a, const mpz_t b, const mpz_t p,
         mpz_sub(out, a, b);
         mpz_mod(out, out, p);
         break;
-    case MULTIPLYOPRANDSCANNING:
+    case MULTIPLYOPERANDSCANNING:
     case MULTIPLYPRODUCTSCANNING:
         mpz_mul(out, a, b);
         break;

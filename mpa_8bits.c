@@ -17,7 +17,7 @@
 #define SUBTRACT 2
 #define ADDMOD 3
 #define SUBTRACTMOD 4
-#define MULTIPLYOPRANDSCANNING 5
+#define MULTIPLYOPERANDSCANNING 5
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
 #define ARITHMETICS 8
@@ -92,7 +92,7 @@ switch(OPERATOR){
         case SUBTRACTMOD: return "SUBTRACTMOD";
         case SUBTRACT: return "SUBTRACT";
         case MULTIPLYPRODUCTSCANNING: return "MULTIPLYPRODUCTSCANNING";
-        case MULTIPLYOPRANDSCANNING: return "MULTIPLYOPRANDSCANNING";
+        case MULTIPLYOPERANDSCANNING: return "MULTIPLYOPERANDSCANNING";
         case MONTGOMERYMULTIPLICATION: return "MONTGOMERYMULTIPLICATION";
 
     }
@@ -363,7 +363,7 @@ unsigned long long int iterations;
 
     A = (unsigned char*)malloc(K*sizeof(unsigned char));
     B = (unsigned char*)malloc(K*sizeof(unsigned char));
-    if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned char*)malloc(2*K*sizeof(unsigned char));
+    if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned char*)malloc(2*K*sizeof(unsigned char));
     else C = (unsigned char*)malloc(K*sizeof(unsigned char));
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME = (int*)malloc(4*sizeof(int));
 
@@ -424,7 +424,7 @@ unsigned long long int iterations;
 
     Amobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned char), NULL, &ret);
     Bmobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned char), NULL, &ret);
-     if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned char), NULL, &ret);
+     if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned char), NULL, &ret);
     else Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, K*sizeof(unsigned char), NULL, &ret);
 
     Omobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 4*sizeof(int), NULL, &ret);
@@ -486,7 +486,7 @@ unsigned long long int iterations;
     clFinish(command_queue);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_exec);
-   if(OPERATOR==MULTIPLYOPRANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned char), C, 0, NULL, NULL);
+   if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned char), C, 0, NULL, NULL);
    else ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, K*sizeof(unsigned char), C, 0, NULL, NULL);
     printf("clEnqueueReadBuffer for Cmobj  %s \n",getErrorString(ret));
     clFinish(command_queue);
@@ -562,7 +562,7 @@ static int testGpuResults(const WORDT *input1, const WORDT *input2,
                           int DEBUG_MODE, const WORDT *PRIME, int WORDLENGTH,
                           const mpz_t bigPrime, int wbits)
 {
-    const int outWords = (OPERATOR == MULTIPLYOPRANDSCANNING ||
+    const int outWords = (OPERATOR == MULTIPLYOPERANDSCANNING ||
                           OPERATOR == MULTIPLYPRODUCTSCANNING)
                          ? 2 * WORDLENGTH : WORDLENGTH;
     const size_t items = K / (size_t)WORDLENGTH;
@@ -589,7 +589,7 @@ static int testGpuResults(const WORDT *input1, const WORDT *input2,
         case SUBTRACT:    mpz_sub(want, a, b); mpz_mod(want, want, lim); break;
         case ADDMOD:      mpz_add(want, a, b); mpz_mod(want, want, bigPrime); break;
         case SUBTRACTMOD: mpz_sub(want, a, b); mpz_mod(want, want, bigPrime); break;
-        case MULTIPLYOPRANDSCANNING:
+        case MULTIPLYOPERANDSCANNING:
         case MULTIPLYPRODUCTSCANNING:
                           mpz_mul(want, a, b); break;
         case MONTGOMERYMULTIPLICATION:

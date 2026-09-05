@@ -3,7 +3,7 @@
 #define SUBTRACT 2
 #define ADDMOD 3
 #define SUBTRACTMOD 4
-#define MULTIPLYOPRANDSCANNING 5
+#define MULTIPLYOPERANDSCANNING 5
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
 #include <mpaKernels_8bits.h>
@@ -329,7 +329,7 @@ __kernel void mpaKernel(__global unsigned char* input1, __global unsigned char* 
                 break;
         case SUBTRACTMOD : subtractMod(input1,input2,outputBytes,ID,PRIME);
                 break;
-        case MULTIPLYOPRANDSCANNING  : multiplyOperandScanning(input1,input2,outputBytes,ID);
+        case MULTIPLYOPERANDSCANNING  : multiplyOperandScanning(input1,input2,outputBytes,ID);
                 break;
         case MULTIPLYPRODUCTSCANNING : multiplyProductScanning(input1,input2,outputBytes,ID);
                 break;

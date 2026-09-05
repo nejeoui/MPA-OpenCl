@@ -26,7 +26,7 @@ GMP by `mpa_test`. The three original kernels (`mpaKernel_32bits.cl`,
 | 1 | Big number comparison | `COMPARE` = 8 | opt |
 | 2 | Big number addition | `ADD` = 1 | all |
 | 3 | Big number subtraction | `SUBTRACT` = 2 | all |
-| 4 | Big number multiplication, operand scanning | `MULTIPLYOPRANDSCANNING` = 5 | all |
+| 4 | Big number multiplication, operand scanning | `MULTIPLYOPERANDSCANNING` = 5 | all |
 |   | Big number multiplication, product scanning | `MULTIPLYPRODUCTSCANNING` = 6 | all |
 | 5 | Big number exponentiation | `EXPONENTIATION` = 12 | opt |
 | 6 | Big number division | `DIVIDE` = 13 | opt |
@@ -38,10 +38,6 @@ GMP by `mpa_test`. The three original kernels (`mpaKernel_32bits.cl`,
 |    | Modular multiplication, R² variant | `MODMUL_R2` = 15 | opt |
 | 12 | Montgomery multiplication | `MONTGOMERYMULTIPLICATION` = 7 | all |
 | 13 | Modular exponentiation | `MODEXP` = 11 | opt |
-
-Note one spelling inconsistency kept for source compatibility: the macro is
-`MULTIPLYOPRANDSCANNING` (no `E`), while the name accepted by the `--op` flag of
-`mpa_test`, `mpa_bench` and `mpa_compare` is `MULTIPLYOPERANDSCANNING`.
 
 ## Data layout and conventions
 

@@ -22,7 +22,7 @@
 #define SUBTRACT 2
 #define ADDMOD 3
 #define SUBTRACTMOD 4
-#define MULTIPLYOPRANDSCANNING 5
+#define MULTIPLYOPERANDSCANNING 5
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
 #define COMPARE 8
@@ -811,7 +811,7 @@ __kernel void mpaKernel(__global uint *input1, __global uint *input2,
         op_addmod(input1, input2, outputBytes, g, PRIME); break;
     case SUBTRACTMOD:
         op_submod(input1, input2, outputBytes, g, PRIME); break;
-    case MULTIPLYOPRANDSCANNING:
+    case MULTIPLYOPERANDSCANNING:
         op_mul_operand(input1, input2, outputBytes, g); break;
     case MULTIPLYPRODUCTSCANNING:
         op_mul_product(input1, input2, outputBytes, g); break;

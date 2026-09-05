@@ -46,7 +46,7 @@
 #define SUBTRACT                 2
 #define ADDMOD                   3
 #define SUBTRACTMOD              4
-#define MULTIPLYOPRANDSCANNING   5
+#define MULTIPLYOPERANDSCANNING   5
 #define MULTIPLYPRODUCTSCANNING  6
 #define MONTGOMERYMULTIPLICATION 7
 #define COMPARE                  8
@@ -67,7 +67,7 @@ static const struct {
     { "sub",       SUBTRACT,                 0, 0, 0, 0 },
     { "addmod",    ADDMOD,                   0, 0, 0, 0 },
     { "submod",    SUBTRACTMOD,              0, 0, 0, 0 },
-    { "mulop",     MULTIPLYOPRANDSCANNING,   1, 0, 0, 0 },
+    { "mulop",     MULTIPLYOPERANDSCANNING,   1, 0, 0, 0 },
     { "mul",       MULTIPLYPRODUCTSCANNING,  1, 0, 0, 0 },
     { "montmul",   MONTGOMERYMULTIPLICATION, 0, 0, 1, 0 },
     { "compare",   COMPARE,                  0, 0, 0, 0 },

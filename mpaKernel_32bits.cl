@@ -2,7 +2,7 @@
 #define SUBTRACT 2
 #define ADDMOD 3
 #define SUBTRACTMOD 4
-#define MULTIPLYOPRANDSCANNING 5
+#define MULTIPLYOPERANDSCANNING 5
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
 #define TWOPOW_W 0x100000000
@@ -327,7 +327,7 @@ __kernel void mpaKernel(__global uint* input1, __global uint* input2, __global u
                 break;
         case SUBTRACTMOD : subtractMod(input1,input2,outputBytes,ID,PRIME);
                 break;
-        case MULTIPLYOPRANDSCANNING : multiplyOperandScanning(input1,input2,outputBytes,ID);
+        case MULTIPLYOPERANDSCANNING : multiplyOperandScanning(input1,input2,outputBytes,ID);
                 break;
         case MULTIPLYPRODUCTSCANNING : multiplyProductScanning(input1,input2,outputBytes,ID);
                 break;

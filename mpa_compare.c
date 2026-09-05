@@ -159,10 +159,10 @@ int main(int argc, char **argv)
     if      (!strcmp(opName, "MODMUL"))    op = MODMUL;
     else if (!strcmp(opName, "MODMUL_R2")) op = MODMUL_R2;
     else if (!strcmp(opName, "MODEXP"))   op = MODEXP;
-    else if (!strcmp(opName, "MULTIPLY")) op = MULTIPLYOPRANDSCANNING;
+    else if (!strcmp(opName, "MULTIPLY")) op = MULTIPLYOPERANDSCANNING;
     else { fprintf(stderr, "unknown op %s\n", opName); return 2; }
 
-    const int wide = (op == MULTIPLYOPRANDSCANNING);
+    const int wide = (op == MULTIPLYOPERANDSCANNING);
     const int T = bits / 32;
     const int outWords = wide ? 2 * T : T;
 
