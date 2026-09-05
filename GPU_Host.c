@@ -42,7 +42,22 @@ typedef struct {
 } CgbnRow;
 
 static CpuRow  g_cpu[NMODULI][NOPS];
-static GpuCell g_gpu[NVARIANTS][NMODULI][NOPS];
+#define MAXDEV 8
+
+typedef struct {
+    cl_device_id id;
+    cl_device_type type;
+    int    isGpu;
+    char   name[256], vendor[160], clver[160], driver[160];
+    cl_ulong gmem, lmem, cache, maxAlloc;
+    cl_uint  cus, clockMHz;
+    size_t   maxWG;
+} DevInfo;
+
+static DevInfo g_devs[MAXDEV];
+static int     g_ndev = 0;
+static int     g_primary = 0;
+static GpuCell g_gpu[MAXDEV][NVARIANTS][NMODULI][NOPS];
 static CgbnRow g_cgbn[256];
 static int     g_ncgbn = 0;
 static Env     g_env;
@@ -149,19 +164,60 @@ static void detectOs(Env *e)
     if (!e->os[0]) snprintf(e->os, sizeof e->os, "unknown");
 }
 
-static void detectGpu(Env *e, cl_device_id d)
+static void collectDevice(DevInfo *d)
 {
-    clGetDeviceInfo(d, CL_DEVICE_NAME,                sizeof e->gpuName,   e->gpuName,   NULL);
-    clGetDeviceInfo(d, CL_DEVICE_VENDOR,              sizeof e->gpuVendor, e->gpuVendor, NULL);
-    clGetDeviceInfo(d, CL_DEVICE_VERSION,             sizeof e->clVersion, e->clVersion, NULL);
-    clGetDeviceInfo(d, CL_DRIVER_VERSION,             sizeof e->driver,    e->driver,    NULL);
-    clGetDeviceInfo(d, CL_DEVICE_GLOBAL_MEM_SIZE,      sizeof e->gmem,     &e->gmem,     NULL);
-    clGetDeviceInfo(d, CL_DEVICE_LOCAL_MEM_SIZE,       sizeof e->lmem,     &e->lmem,     NULL);
-    clGetDeviceInfo(d, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE,sizeof e->cache,    &e->cache,    NULL);
-    clGetDeviceInfo(d, CL_DEVICE_MAX_MEM_ALLOC_SIZE,   sizeof e->maxAlloc, &e->maxAlloc, NULL);
-    clGetDeviceInfo(d, CL_DEVICE_MAX_COMPUTE_UNITS,    sizeof e->cus,      &e->cus,      NULL);
-    clGetDeviceInfo(d, CL_DEVICE_MAX_CLOCK_FREQUENCY,  sizeof e->clockMHz, &e->clockMHz, NULL);
-    clGetDeviceInfo(d, CL_DEVICE_MAX_WORK_GROUP_SIZE,  sizeof e->maxWG,    &e->maxWG,    NULL);
+    cl_device_id x = d->id;
+    clGetDeviceInfo(x, CL_DEVICE_TYPE,                 sizeof d->type,     &d->type,     NULL);
+    clGetDeviceInfo(x, CL_DEVICE_NAME,                 sizeof d->name,      d->name,     NULL);
+    clGetDeviceInfo(x, CL_DEVICE_VENDOR,               sizeof d->vendor,    d->vendor,   NULL);
+    clGetDeviceInfo(x, CL_DEVICE_VERSION,              sizeof d->clver,     d->clver,    NULL);
+    clGetDeviceInfo(x, CL_DRIVER_VERSION,              sizeof d->driver,    d->driver,   NULL);
+    clGetDeviceInfo(x, CL_DEVICE_GLOBAL_MEM_SIZE,      sizeof d->gmem,     &d->gmem,     NULL);
+    clGetDeviceInfo(x, CL_DEVICE_LOCAL_MEM_SIZE,       sizeof d->lmem,     &d->lmem,     NULL);
+    clGetDeviceInfo(x, CL_DEVICE_GLOBAL_MEM_CACHE_SIZE,sizeof d->cache,    &d->cache,    NULL);
+    clGetDeviceInfo(x, CL_DEVICE_MAX_MEM_ALLOC_SIZE,   sizeof d->maxAlloc, &d->maxAlloc, NULL);
+    clGetDeviceInfo(x, CL_DEVICE_MAX_COMPUTE_UNITS,    sizeof d->cus,      &d->cus,      NULL);
+    clGetDeviceInfo(x, CL_DEVICE_MAX_CLOCK_FREQUENCY,  sizeof d->clockMHz, &d->clockMHz, NULL);
+    clGetDeviceInfo(x, CL_DEVICE_MAX_WORK_GROUP_SIZE,  sizeof d->maxWG,    &d->maxWG,    NULL);
+    d->isGpu = (d->type & CL_DEVICE_TYPE_GPU) != 0;
+}
+
+static void enumerateDevices(const char *want)
+{
+    cl_uint np = 0;
+    if (clGetPlatformIDs(0, NULL, &np) != CL_SUCCESS || !np) return;
+    cl_platform_id *plats = malloc((size_t)np * sizeof *plats);
+    clGetPlatformIDs(np, plats, NULL);
+
+    for (cl_uint i = 0; i < np && g_ndev < MAXDEV; i++) {
+        cl_uint nd = 0;
+        if (clGetDeviceIDs(plats[i], CL_DEVICE_TYPE_ALL, 0, NULL, &nd) != CL_SUCCESS || !nd) continue;
+        cl_device_id *ds = malloc((size_t)nd * sizeof *ds);
+        clGetDeviceIDs(plats[i], CL_DEVICE_TYPE_ALL, nd, ds, NULL);
+        for (cl_uint j = 0; j < nd && g_ndev < MAXDEV; j++) {
+            DevInfo t; memset(&t, 0, sizeof t);
+            t.id = ds[j];
+            collectDevice(&t);
+            int isCpu = (t.type & CL_DEVICE_TYPE_CPU) != 0;
+            if (!strcmp(want, "gpu") && !t.isGpu) continue;
+            if (!strcmp(want, "cpu") && !isCpu)   continue;
+            g_devs[g_ndev++] = t;
+        }
+        free(ds);
+    }
+    free(plats);
+
+    if (getenv("MPA_FAKE_CPU_DEVICE") && g_ndev == 1 && g_ndev < MAXDEV) {
+        g_devs[1] = g_devs[0];
+        g_devs[1].isGpu = 0;
+        g_devs[1].type = CL_DEVICE_TYPE_CPU;
+        snprintf(g_devs[1].name, sizeof g_devs[1].name, "%s (posing as CPU)", g_devs[0].name);
+        g_ndev = 2;
+    }
+
+    g_primary = 0;
+    for (int i = 0; i < g_ndev; i++)
+        if (g_devs[i].isGpu) { g_primary = i; break; }
 }
 
 typedef struct { mpz_t lim, Rinv, tmp; int bits; } GmpCtx;
@@ -233,17 +289,19 @@ int main(int argc, char **argv)
 {
     int items = 20000, reps = 5, budget = 0;
     const char *only = NULL;
+    const char *wantDev = "all";
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--items")  && i+1 < argc) items  = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--reps")   && i+1 < argc) reps   = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--budget") && i+1 < argc) budget = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--variant")&& i+1 < argc) only   = argv[++i];
+        else if (!strcmp(argv[i], "--devices")&& i+1 < argc) wantDev= argv[++i];
         else if (!strcmp(argv[i], "--verbose")) g_verbose = 1;
         else {
             fprintf(stderr,
                 "usage: %s [--items N] [--reps N] [--budget SECONDS] "
-                "[--variant w8|w16|w32|w32-opt|w32-o64] [--verbose]\n", argv[0]);
+                "[--variant w8|w16|w32|w32-opt|w32-o64] [--devices all|gpu|cpu] [--verbose]\n", argv[0]);
             return 2;
         }
     }
@@ -254,10 +312,9 @@ int main(int argc, char **argv)
 
     rngState = 88172645463325252ULL;
 
-    cl_platform_id plat; cl_device_id dev;
-    pickDevice(&plat, &dev);
+    enumerateDevices(wantDev);
+    if (!g_ndev) { fprintf(stderr, "no OpenCL device matched --devices %s\n", wantDev); return 1; }
 
-    detectGpu(&g_env, dev);
     detectCpu(&g_env);
     detectOs(&g_env);
 #ifdef _OPENMP
@@ -267,12 +324,18 @@ int main(int argc, char **argv)
 #endif
 
     char safe[256];
-    sanitize(g_env.gpuName, safe, sizeof safe);
+    sanitize(g_devs[g_primary].name, safe, sizeof safe);
     snprintf(g_reportPath, sizeof g_reportPath, "%s_Report.md", safe);
     snprintf(g_csvPath,    sizeof g_csvPath,    "%s_Report.csv", safe);
 
-    fprintf(stderr, "GPU     : %s (%s)\n", g_env.gpuName, g_env.gpuVendor);
-    fprintf(stderr, "CPU     : %s, %ld cores, %.1f GB\n", g_env.cpu, g_env.cores, g_env.ramGB);
+    fprintf(stderr, "OpenCL devices under test (%d):\n", g_ndev);
+    for (int i = 0; i < g_ndev; i++)
+        fprintf(stderr, "  [%d] %-4s %s (%s), %u CU, %.2f GiB%s\n", i,
+                g_devs[i].isGpu ? "GPU" : ((g_devs[i].type & CL_DEVICE_TYPE_CPU) ? "CPU" : "ACC"),
+                g_devs[i].name, g_devs[i].vendor, g_devs[i].cus,
+                (double)g_devs[i].gmem / 1073741824.0,
+                i == g_primary ? "  <- names the report" : "");
+    fprintf(stderr, "host CPU: %s, %ld cores, %.1f GB\n", g_env.cpu, g_env.cores, g_env.ramGB);
     fprintf(stderr, "OS      : %s\n", g_env.os);
     fprintf(stderr, "report  : %s\n\n", g_reportPath);
 
@@ -296,8 +359,6 @@ int main(int argc, char **argv)
     const double t_start = now_s();
 
     cl_int err;
-    cl_context ctx = clCreateContext(NULL, 1, &dev, NULL, NULL, &err); CHECK(err);
-    cl_command_queue q = clCreateCommandQueue(ctx, dev, 0, &err); CHECK(err);
 
     for (int m = 0; m < NMODULI && !g_interrupted; m++) {
         const Modulus *mod = &MODULI[m];
@@ -415,6 +476,14 @@ int main(int argc, char **argv)
         mpz_clear(p);
     }
 
+    for (int d = 0; d < g_ndev && !g_interrupted; d++) {
+    cl_device_id dev = g_devs[d].id;
+    cl_context ctx = clCreateContext(NULL, 1, &dev, NULL, NULL, &err);
+    if (err != CL_SUCCESS) { fprintf(stderr, "context failed for %s\n", g_devs[d].name); continue; }
+    cl_command_queue q = clCreateCommandQueue(ctx, dev, 0, &err);
+    if (err != CL_SUCCESS) { clReleaseContext(ctx); continue; }
+    fprintf(stderr, "\n=== device %d: %s ===\n", d, g_devs[d].name);
+
     for (int v = 0; v < NVARIANTS && !g_interrupted; v++) {
         const Variant *var = &VARIANTS[v];
         if (only && strcmp(only, var->name)) continue;
@@ -444,7 +513,7 @@ int main(int argc, char **argv)
                 char *log = malloc(ln + 1);
                 clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, ln, log, NULL);
                 log[ln] = 0;
-                fprintf(stderr, "  BUILD FAILED %s/%s: %s\n", var->name, mod->name, log);
+                fprintf(stderr, "  [%d] BUILD FAILED %s/%s: %s\n", d, var->name, mod->name, log);
                 free(log);
                 clReleaseProgram(prog);
                 continue;
@@ -466,7 +535,7 @@ int main(int argc, char **argv)
 
             for (int o = 0; o < NOPS && !g_interrupted; o++) {
                 const Op *op = &OPS[o];
-                GpuCell *cell = &g_gpu[v][m][o];
+                GpuCell *cell = &g_gpu[d][v][m][o];
                 if (op->ext && !var->ext) continue;
                 cell->attempted = 1;
 
@@ -559,8 +628,8 @@ int main(int argc, char **argv)
                 cell->e2e_s    = minimum(te, reps);
                 free(tk); free(te);
 
-                fprintf(stderr, "  gpu  %-8s %-18s %-26s n=%-7ld %.6fs %s\n",
-                        var->name, modShort(mod), op->name, n, cell->kernel_s,
+                fprintf(stderr, "  [%d] %-8s %-18s %-26s n=%-7ld %.6fs %s\n",
+                        d, var->name, modShort(mod), op->name, n, cell->kernel_s,
                         cell->mismatches ? "MISMATCH" : "ok");
 
 cleanup:
@@ -578,10 +647,11 @@ cleanup:
         writeReport(items, reps, now_s() - t_start, 0);
     }
 
-    writeReport(items, reps, now_s() - t_start, !g_interrupted);
-
     clReleaseCommandQueue(q);
     clReleaseContext(ctx);
+    }
+
+    writeReport(items, reps, now_s() - t_start, !g_interrupted);
 
     fprintf(stderr, "\nwrote %s and %s\n", g_reportPath, g_csvPath);
     return 0;
@@ -613,11 +683,11 @@ static void ratio(char *buf, size_t n, double base, double ours)
     snprintf(buf, n, "%.2fx", base / ours);
 }
 
-static int bestVariant(int m, int o, double *secs)
+static int bestVariant(int d, int m, int o, double *secs)
 {
     int best = -1; double b = 0;
     for (int v = 0; v < NVARIANTS; v++) {
-        const GpuCell *c = &g_gpu[v][m][o];
+        const GpuCell *c = &g_gpu[d][v][m][o];
         if (!c->built || c->mismatches || c->kernel_s <= 0) continue;
         if (best < 0 || c->kernel_s < b) { b = c->kernel_s; best = v; }
     }
@@ -625,29 +695,61 @@ static int bestVariant(int m, int o, double *secs)
     return best;
 }
 
+static int bestOfClass(int wantGpu, int m, int o, double *secs, int *devOut, int *varOut)
+{
+    int found = 0; double b = 0; int bd = -1, bv = -1;
+    for (int d = 0; d < g_ndev; d++) {
+        if (g_devs[d].isGpu != wantGpu) continue;
+        double s; int v = bestVariant(d, m, o, &s);
+        if (v < 0) continue;
+        if (!found || s < b) { b = s; bd = d; bv = v; found = 1; }
+    }
+    if (secs) *secs = b;
+    if (devOut) *devOut = bd;
+    if (varOut) *varOut = bv;
+    return found;
+}
+
+static const char *devClass(const DevInfo *d)
+{
+    if (d->isGpu) return "GPU";
+    if (d->type & CL_DEVICE_TYPE_CPU) return "CPU";
+    return "ACC";
+}
+
+static void deviceTable(FILE *f, const DevInfo *d)
+{
+    fprintf(f, "| Property | Value |\n|---|---|\n");
+    fprintf(f, "| Model | %s |\n", d->name);
+    fprintf(f, "| Type | %s |\n", devClass(d));
+    fprintf(f, "| Vendor | %s |\n", d->vendor);
+    fprintf(f, "| Device memory | %.2f GiB |\n", (double)d->gmem / 1073741824.0);
+    fprintf(f, "| Max single allocation | %.2f GiB |\n", (double)d->maxAlloc / 1073741824.0);
+    fprintf(f, "| Local memory | %.0f KiB |\n", (double)d->lmem / 1024.0);
+    fprintf(f, "| Global cache | %.0f KiB |\n", (double)d->cache / 1024.0);
+    fprintf(f, "| Compute units | %u |\n", d->cus);
+    fprintf(f, "| Max clock | %u MHz |\n", d->clockMHz);
+    fprintf(f, "| Max work-group size | %zu |\n", d->maxWG);
+    fprintf(f, "| OpenCL version | %s |\n", d->clver);
+    fprintf(f, "| Driver | %s |\n\n", d->driver);
+}
+
 static void writeReport(int items, int reps, double elapsed, int complete)
 {
     FILE *f = fopen(g_reportPath, "w");
     if (!f) { perror(g_reportPath); return; }
 
-    fprintf(f, "# MPA-OpenCL benchmark report - %s\n\n", g_env.gpuName);
+    fprintf(f, "# MPA-OpenCL benchmark report - %s\n\n", g_devs[g_primary].name);
     if (!complete)
         fprintf(f, "> **Partial report.** The run was interrupted or hit its time budget.\n"
                    "> Rows that never ran are marked `n/a`.\n\n");
 
-    fprintf(f, "## 1. System under test\n\n### GPU\n\n");
-    fprintf(f, "| Property | Value |\n|---|---|\n");
-    fprintf(f, "| Model | %s |\n", g_env.gpuName);
-    fprintf(f, "| Vendor | %s |\n", g_env.gpuVendor);
-    fprintf(f, "| Global memory | %.2f GiB |\n", (double)g_env.gmem / 1073741824.0);
-    fprintf(f, "| Max single allocation | %.2f GiB |\n", (double)g_env.maxAlloc / 1073741824.0);
-    fprintf(f, "| Local memory | %.0f KiB |\n", (double)g_env.lmem / 1024.0);
-    fprintf(f, "| Global cache | %.0f KiB |\n", (double)g_env.cache / 1024.0);
-    fprintf(f, "| Compute units | %u |\n", g_env.cus);
-    fprintf(f, "| Max clock | %u MHz |\n", g_env.clockMHz);
-    fprintf(f, "| Max work-group size | %zu |\n", g_env.maxWG);
-    fprintf(f, "| OpenCL version | %s |\n", g_env.clVersion);
-    fprintf(f, "| Driver | %s |\n\n", g_env.driver);
+    fprintf(f, "## 1. System under test\n\n");
+    fprintf(f, "%d OpenCL device(s) exercised with the identical kernels and operands.\n\n", g_ndev);
+    for (int d = 0; d < g_ndev; d++) {
+        fprintf(f, "### Device %d - %s (%s)\n\n", d, g_devs[d].name, devClass(&g_devs[d]));
+        deviceTable(f, &g_devs[d]);
+    }
 
     fprintf(f, "### Host\n\n| Property | Value |\n|---|---|\n");
     fprintf(f, "| CPU | %s |\n", g_env.cpu);
@@ -665,92 +767,111 @@ static void writeReport(int items, int reps, double elapsed, int complete)
     fprintf(f, "- Base workload %d items, scaled down per operator by its cost weight and by modulus size; the exact count is in every row.\n", items);
     fprintf(f, "- %d timed repetitions, **minimum** reported. Two untimed warm-up launches precede them.\n", reps);
     fprintf(f, "- `kernel` times `clEnqueueNDRangeKernel` + `clFinish` only. `e2e` adds the host->device operand writes and the device->host result read.\n");
-    fprintf(f, "- CPU baselines run the identical operands (the generator is reseeded per modulus and operation, so every backend sees the same inputs). Temporaries are preallocated outside the timed region, so the figure is the arithmetic, not marshalling.\n");
-    fprintf(f, "- Every GPU cell is checked word-for-word against GMP before it is timed. A cell that mismatches is reported and excluded from the speedup tables.\n");
+    fprintf(f, "- Every OpenCL device runs the same kernels on the same operands, so GPU and CPU-OpenCL columns are directly comparable.\n");
+    fprintf(f, "- CPU library baselines (GMP, OpenSSL) run those same operands, with temporaries preallocated outside the timed region, so the figure is the arithmetic and not marshalling. The generator is reseeded per modulus and operation so every backend sees identical inputs.\n");
     fprintf(f, "- OpenSSL rows time the nearest BN primitive, which is not always semantically identical (its Montgomery routine expects Montgomery-domain inputs); they measure comparable work, not identical results. Correctness is judged against GMP only.\n");
+    fprintf(f, "- Every device cell is checked word-for-word against GMP before it is timed. A cell that mismatches is reported and excluded from the speedup tables.\n");
     fprintf(f, "- Total wall time %.1f s.\n\n", elapsed);
 
     fprintf(f, "## 3. Correctness\n\n");
-    fprintf(f, "| Kernel | Configs run | Passed | Mismatched | Build/launch failed |\n|---|---|---|---|---|\n");
+    fprintf(f, "| Device | Kernel | Configs run | Passed | Mismatched | Build/launch failed |\n|---|---|---|---|---|---|\n");
     long gtot = 0, gbad = 0;
-    for (int v = 0; v < NVARIANTS; v++) {
-        long run = 0, pass = 0, bad = 0, fail = 0;
-        for (int m = 0; m < NMODULI; m++)
-            for (int o = 0; o < NOPS; o++) {
-                const GpuCell *c = &g_gpu[v][m][o];
-                if (!c->attempted) continue;
-                run++;
-                if (!c->built) fail++;
-                else if (c->mismatches) bad++;
-                else pass++;
-            }
-        if (!run) continue;
-        gtot += run; gbad += bad + fail;
-        fprintf(f, "| `%s` (%s) | %ld | %ld | %ld | %ld |\n",
-                VARIANTS[v].cl, VARIANTS[v].name, run, pass, bad, fail);
-    }
+    for (int d = 0; d < g_ndev; d++)
+        for (int v = 0; v < NVARIANTS; v++) {
+            long run = 0, pass = 0, bad = 0, fail = 0;
+            for (int m = 0; m < NMODULI; m++)
+                for (int o = 0; o < NOPS; o++) {
+                    const GpuCell *c = &g_gpu[d][v][m][o];
+                    if (!c->attempted) continue;
+                    run++;
+                    if (!c->built) fail++;
+                    else if (c->mismatches) bad++;
+                    else pass++;
+                }
+            if (!run) continue;
+            gtot += run; gbad += bad + fail;
+            fprintf(f, "| [%d] %s | `%s` (%s) | %ld | %ld | %ld | %ld |\n",
+                    d, devClass(&g_devs[d]), VARIANTS[v].cl, VARIANTS[v].name, run, pass, bad, fail);
+        }
     fprintf(f, "\n**%s** - %ld configurations, %ld problems.\n\n",
             gbad ? "FAILURES PRESENT" : "All configurations correct", gtot, gbad);
 
-    fprintf(f, "## 4. Throughput by modulus\n\n");
-    fprintf(f, "Operations per second, higher is better. GPU columns are kernel-only.\n\n");
-    for (int m = 0; m < NMODULI; m++) {
-        fprintf(f, "### %s (%d-bit)\n\n| Operation | items |", MODULI[m].name, MODULI[m].bits);
-        for (int v = 0; v < NVARIANTS; v++) fprintf(f, " %s |", VARIANTS[v].name);
-        fprintf(f, " GMP 1T | GMP %dT | OpenSSL %dT | CGBN |\n", g_env.threads, g_env.threads);
-        fprintf(f, "|---|---|");
-        for (int v = 0; v < NVARIANTS; v++) fprintf(f, "---|");
-        fprintf(f, "---|---|---|---|\n");
-
-        for (int o = 0; o < NOPS; o++) {
-            const CpuRow *cr = &g_cpu[m][o];
-            if (!cr->items) continue;
-            fprintf(f, "| %s | %ld |", OPS[o].name, cr->items);
-            char b[32];
-            for (int v = 0; v < NVARIANTS; v++) {
-                const GpuCell *c = &g_gpu[v][m][o];
-                if (!c->attempted)      fprintf(f, " - |");
-                else if (!c->built)     fprintf(f, " build failed |");
-                else if (c->mismatches) fprintf(f, " **WRONG** |");
-                else { rate(b, sizeof b, c->kernel_s, c->items); fprintf(f, " %s |", b); }
+    fprintf(f, "## 4. Throughput per device\n\n");
+    fprintf(f, "Operations per second, higher is better. Kernel-only timings.\n\n");
+    for (int d = 0; d < g_ndev; d++) {
+        fprintf(f, "### Device %d - %s (%s)\n\n", d, g_devs[d].name, devClass(&g_devs[d]));
+        for (int m = 0; m < NMODULI; m++) {
+            fprintf(f, "#### %s (%d-bit)\n\n| Operation | items |", MODULI[m].name, MODULI[m].bits);
+            for (int v = 0; v < NVARIANTS; v++) fprintf(f, " %s |", VARIANTS[v].name);
+            fprintf(f, " GMP 1T | GMP %dT | OpenSSL %dT | CGBN |\n", g_env.threads, g_env.threads);
+            fprintf(f, "|---|---|");
+            for (int v = 0; v < NVARIANTS; v++) fprintf(f, "---|");
+            fprintf(f, "---|---|---|---|\n");
+            for (int o = 0; o < NOPS; o++) {
+                const CpuRow *cr = &g_cpu[m][o];
+                if (!cr->items) continue;
+                fprintf(f, "| %s | %ld |", OPS[o].name, cr->items);
+                char b[32];
+                for (int v = 0; v < NVARIANTS; v++) {
+                    const GpuCell *c = &g_gpu[d][v][m][o];
+                    if (!c->attempted)      fprintf(f, " - |");
+                    else if (!c->built)     fprintf(f, " build failed |");
+                    else if (c->mismatches) fprintf(f, " **WRONG** |");
+                    else { rate(b, sizeof b, c->kernel_s, c->items); fprintf(f, " %s |", b); }
+                }
+                rate(b, sizeof b, cr->gmp1, cr->items); fprintf(f, " %s |", b);
+                rate(b, sizeof b, cr->gmpN, cr->items); fprintf(f, " %s |", b);
+                rate(b, sizeof b, cr->ossl, cr->items); fprintf(f, " %s |", b);
+                long ci = 0; double cs = cgbnLookup(MODULI[m].name, OPS[o].name, &ci);
+                rate(b, sizeof b, cs, ci); fprintf(f, " %s |\n", b);
             }
-            rate(b, sizeof b, cr->gmp1, cr->items); fprintf(f, " %s |", b);
-            rate(b, sizeof b, cr->gmpN, cr->items); fprintf(f, " %s |", b);
-            rate(b, sizeof b, cr->ossl, cr->items); fprintf(f, " %s |", b);
-            long ci = 0; double cs = cgbnLookup(MODULI[m].name, OPS[o].name, &ci);
-            rate(b, sizeof b, cs, ci); fprintf(f, " %s |\n", b);
+            fprintf(f, "\n");
         }
-        fprintf(f, "\n");
     }
 
-    fprintf(f, "## 5. Speedup of the best kernel over each baseline\n\n");
-    fprintf(f, "Ratios above 1.00x mean MPA-OpenCL is faster.\n\n");
+    fprintf(f, "## 5. Head to head\n\n");
+    fprintf(f, "Best OpenCL GPU result against best OpenCL CPU result and the CPU libraries.\n");
+    fprintf(f, "Ratios above 1.00x mean the GPU is faster than that baseline.\n\n");
     for (int m = 0; m < NMODULI; m++) {
         fprintf(f, "### %s (%d-bit)\n\n", MODULI[m].name, MODULI[m].bits);
-        fprintf(f, "| Operation | best kernel | vs GMP 1T | vs GMP %dT | vs OpenSSL | vs CGBN | e2e vs GMP %dT |\n",
-                g_env.threads, g_env.threads);
-        fprintf(f, "|---|---|---|---|---|---|---|\n");
+        fprintf(f, "| Operation | best GPU | GPU ops/s | best CPU-CL | CPU-CL ops/s | GMP 1T | GMP %dT | OpenSSL | CGBN |"
+                   " GPU vs CPU-CL | GPU vs GMP %dT | GPU vs OpenSSL | GPU vs CGBN |\n",
+                   g_env.threads, g_env.threads);
+        fprintf(f, "|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (int o = 0; o < NOPS; o++) {
             const CpuRow *cr = &g_cpu[m][o];
             if (!cr->items) continue;
-            double bs = 0; int bv = bestVariant(m, o, &bs);
-            if (bv < 0) { fprintf(f, "| %s | none correct | n/a | n/a | n/a | n/a | n/a |\n", OPS[o].name); continue; }
-            char r1[32], r2[32], r3[32], r4[32], r5[32];
-            long ci = 0; double cs = cgbnLookup(MODULI[m].name, OPS[o].name, &ci);
-            double cs_scaled = (cs > 0 && ci > 0) ? cs * (double)cr->items / (double)ci : -1;
-            ratio(r1, sizeof r1, cr->gmp1, bs);
-            ratio(r2, sizeof r2, cr->gmpN, bs);
-            ratio(r3, sizeof r3, cr->ossl, bs);
-            ratio(r4, sizeof r4, cs_scaled, bs);
-            ratio(r5, sizeof r5, cr->gmpN, g_gpu[bv][m][o].e2e_s);
-            fprintf(f, "| %s | %s | %s | %s | %s | %s | %s |\n",
-                    OPS[o].name, VARIANTS[bv].name, r1, r2, r3, r4, r5);
+            double gs = 0, cs2 = 0; int gd = -1, gv = -1, cd = -1, cv = -1;
+            int haveG = bestOfClass(1, m, o, &gs,  &gd, &gv);
+            int haveC = bestOfClass(0, m, o, &cs2, &cd, &cv);
+            char gr[32], cr2[32], b1[32], b2[32], b3[32], b4[32];
+            char r0[32], r1[32], r2[32], r3[32];
+            long ci = 0; double cg = cgbnLookup(MODULI[m].name, OPS[o].name, &ci);
+            double cgs = (cg > 0 && ci > 0) ? cg * (double)cr->items / (double)ci : -1;
+
+            rate(gr,  sizeof gr,  haveG ? gs  : -1, cr->items);
+            rate(cr2, sizeof cr2, haveC ? cs2 : -1, cr->items);
+            rate(b1, sizeof b1, cr->gmp1, cr->items);
+            rate(b2, sizeof b2, cr->gmpN, cr->items);
+            rate(b3, sizeof b3, cr->ossl, cr->items);
+            rate(b4, sizeof b4, cg, ci);
+            ratio(r0, sizeof r0, haveC ? cs2 : -1, haveG ? gs : -1);
+            ratio(r1, sizeof r1, cr->gmpN, haveG ? gs : -1);
+            ratio(r2, sizeof r2, cr->ossl, haveG ? gs : -1);
+            ratio(r3, sizeof r3, cgs,      haveG ? gs : -1);
+
+            fprintf(f, "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n",
+                    OPS[o].name,
+                    haveG ? VARIANTS[gv].name : "none", gr,
+                    haveC ? VARIANTS[cv].name : "none", cr2,
+                    b1, b2, b3, b4, r0, r1, r2, r3);
         }
         fprintf(f, "\n");
     }
 
+    int sec = 6;
     if (!g_ncgbn) {
-        fprintf(f, "## 6. CGBN\n\n");
+        fprintf(f, "## %d. CGBN\n\n", sec++);
         fprintf(f, "Not measured on this run. CGBN is CUDA-only and is not built into this host.\n");
         fprintf(f, "To populate the CGBN columns, produce `cgbn_results.tsv` next to the binary with one\n");
         fprintf(f, "whitespace-separated row per measurement and re-run:\n\n");
@@ -758,11 +879,12 @@ static void writeReport(int items, int reps, double elapsed, int complete)
         fprintf(f, "`modulus_name` and `operation_name` must match the spellings used in the tables above.\n\n");
     }
 
-    fprintf(f, "## %d. Raw data\n\n", g_ncgbn ? 6 : 7);
+    fprintf(f, "## %d. Raw data\n\n", sec);
     fprintf(f, "Also written to `%s` for analysis.\n\n", g_csvPath);
-    fprintf(f, "```csv\nkind,kernel,modulus,bits,operation,items,seconds,ops_per_sec,mismatches\n");
+    fprintf(f, "```csv\nkind,device,device_type,kernel,modulus,bits,operation,items,seconds,ops_per_sec,mismatches\n");
     FILE *c = fopen(g_csvPath, "w");
-    if (c) fprintf(c, "kind,kernel,modulus,bits,operation,items,seconds,ops_per_sec,mismatches\n");
+    if (c) fprintf(c, "kind,device,device_type,kernel,modulus,bits,operation,items,seconds,ops_per_sec,mismatches\n");
+
     for (int m = 0; m < NMODULI; m++)
         for (int o = 0; o < NOPS; o++) {
             const CpuRow *cr = &g_cpu[m][o];
@@ -771,29 +893,41 @@ static void writeReport(int items, int reps, double elapsed, int complete)
                 { "gmp-1t", cr->gmp1 }, { "gmp-nt", cr->gmpN }, { "openssl-nt", cr->ossl } };
             for (int i = 0; i < 3; i++) {
                 if (cpu[i].s <= 0) continue;
-                fprintf(f, "cpu,%s,%s,%d,%s,%ld,%.9f,%.3f,0\n", cpu[i].k, MODULI[m].name,
-                        MODULI[m].bits, OPS[o].name, cr->items, cpu[i].s, (double)cr->items/cpu[i].s);
-                if (c) fprintf(c, "cpu,%s,%s,%d,%s,%ld,%.9f,%.3f,0\n", cpu[i].k, MODULI[m].name,
-                        MODULI[m].bits, OPS[o].name, cr->items, cpu[i].s, (double)cr->items/cpu[i].s);
+                const char *fmt = "library,%s,host-cpu,%s,%s,%d,%s,%ld,%.9f,%.3f,0\n";
+                fprintf(f, fmt, g_env.cpu, cpu[i].k, MODULI[m].name, MODULI[m].bits,
+                        OPS[o].name, cr->items, cpu[i].s, (double)cr->items / cpu[i].s);
+                if (c) fprintf(c, fmt, g_env.cpu, cpu[i].k, MODULI[m].name, MODULI[m].bits,
+                        OPS[o].name, cr->items, cpu[i].s, (double)cr->items / cpu[i].s);
             }
-            for (int v = 0; v < NVARIANTS; v++) {
-                const GpuCell *g = &g_gpu[v][m][o];
-                if (!g->attempted || !g->built) continue;
-                fprintf(f, "gpu-kernel,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n", VARIANTS[v].name,
-                        MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items, g->kernel_s,
-                        (double)g->items/g->kernel_s, g->mismatches);
-                fprintf(f, "gpu-e2e,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n", VARIANTS[v].name,
-                        MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items, g->e2e_s,
-                        (double)g->items/g->e2e_s, g->mismatches);
-                if (c) {
-                    fprintf(c, "gpu-kernel,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n", VARIANTS[v].name,
-                            MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items, g->kernel_s,
-                            (double)g->items/g->kernel_s, g->mismatches);
-                    fprintf(c, "gpu-e2e,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n", VARIANTS[v].name,
-                            MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items, g->e2e_s,
-                            (double)g->items/g->e2e_s, g->mismatches);
+            long ci = 0; double cg = cgbnLookup(MODULI[m].name, OPS[o].name, &ci);
+            if (cg > 0 && ci > 0) {
+                const char *fmt = "library,%s,gpu,cgbn,%s,%d,%s,%ld,%.9f,%.3f,0\n";
+                fprintf(f, fmt, g_devs[g_primary].name, MODULI[m].name, MODULI[m].bits,
+                        OPS[o].name, ci, cg, (double)ci / cg);
+                if (c) fprintf(c, fmt, g_devs[g_primary].name, MODULI[m].name, MODULI[m].bits,
+                        OPS[o].name, ci, cg, (double)ci / cg);
+            }
+            for (int d = 0; d < g_ndev; d++)
+                for (int v = 0; v < NVARIANTS; v++) {
+                    const GpuCell *g = &g_gpu[d][v][m][o];
+                    if (!g->attempted || !g->built) continue;
+                    const char *fk = "opencl-kernel,%s,%s,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n";
+                    const char *fe = "opencl-e2e,%s,%s,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n";
+                    fprintf(f, fk, g_devs[d].name, devClass(&g_devs[d]), VARIANTS[v].name,
+                            MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items,
+                            g->kernel_s, (double)g->items / g->kernel_s, g->mismatches);
+                    fprintf(f, fe, g_devs[d].name, devClass(&g_devs[d]), VARIANTS[v].name,
+                            MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items,
+                            g->e2e_s, (double)g->items / g->e2e_s, g->mismatches);
+                    if (c) {
+                        fprintf(c, fk, g_devs[d].name, devClass(&g_devs[d]), VARIANTS[v].name,
+                                MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items,
+                                g->kernel_s, (double)g->items / g->kernel_s, g->mismatches);
+                        fprintf(c, fe, g_devs[d].name, devClass(&g_devs[d]), VARIANTS[v].name,
+                                MODULI[m].name, MODULI[m].bits, OPS[o].name, g->items,
+                                g->e2e_s, (double)g->items / g->e2e_s, g->mismatches);
+                    }
                 }
-            }
         }
     fprintf(f, "```\n");
     if (c) fclose(c);
