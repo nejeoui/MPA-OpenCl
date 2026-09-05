@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pocl:
+    name: correctness on pocl (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install an OpenCL CPU runtime, GMP and OpenSSL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ocl-icd-opencl-dev pocl-opencl-icd libgmp-dev libssl-dev clinfo
+
+      - name: Show the device under test
+        run: clinfo --list
+
+      - name: Build
+        run: make
+
+      - name: mpa_run must link neither GMP nor OpenSSL
+        run: |
+          ldd mpa_run
+          if ldd mpa_run | grep -qE 'libgmp|libcrypto|libssl'; then
+            echo "::error::mpa_run picked up a bignum or crypto dependency"
+            exit 1
+          fi
+
+      - name: Correctness suite, every operator at every word size
+        run: ./mpa_test --items 64
+
+      - name: Montgomery reachability property
+        run: python3 reach_check.py
