@@ -1,0 +1,10 @@
+.DS_Store
+*.o
+mpa_test
+mpa_bench
+mpa_compare
+ecdsa_bench
+mpa_8bits
+mpa_16bits
+mpa_32bits
+mpa_run

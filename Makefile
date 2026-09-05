@@ -42,9 +42,14 @@ endif
 
 BENCH := mpa_8bits mpa_16bits mpa_32bits
 
-.PHONY: all test bench perf compare ecdsa clean
+.PHONY: all test bench perf compare ecdsa run clean
 
-all: mpa_test mpa_bench mpa_compare ecdsa_bench $(BENCH)
+all: mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run $(BENCH)
+
+# The dependency-free host: C99 and an OpenCL ICD, nothing else. The explicit
+# rule keeps it away from the mpa_% pattern below, which links GMP and OpenSSL.
+mpa_run: mpa_run.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(CL_LDLIBS)
 
 mpa_test: mpa_test.c mpa_ref.h
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(CL_LDLIBS) -lgmp
@@ -88,6 +93,10 @@ perf: mpa_bench
 compare: mpa_compare
 	./mpa_compare $(CMPARGS)
 
+# Minimal host: drive the kernels with no GMP and no OpenSSL.
+run: mpa_run
+	./mpa_run $(RUNARGS)
+
 # Batched P-256 ECDSA verification, validated against OpenSSL.
 ecdsa: ecdsa_bench
 	./ecdsa_bench $(ECDSAARGS)
@@ -96,4 +105,4 @@ mpa_%: mpa_%.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(CL_LDLIBS) -lgmp -lcrypto
 
 clean:
-	rm -f mpa_test mpa_bench mpa_compare ecdsa_bench $(BENCH)
+	rm -f mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run $(BENCH)
