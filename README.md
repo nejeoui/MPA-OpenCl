@@ -6,7 +6,7 @@
 
 DESCRIPTION:
 
-MPA-OpenCL is a Multiple precision Arithmetic API in OpenCl licensed under the Apache Software License v2.
+MPA-OpenCL is a Multiple precision Arithmetic API in OpenCl licensed under the [Apache Software License v2](LICENSE).
 The API offer a set of helper functions that can be used to carry usual Arbitrary Precision Arithmetic in every openCL enable device like GPUs, Multi core CPUs, Co-processeurs, FPGA and hand held devices that support OpenCL like for example Android Devices supporting OpenCL.
 The main motivation behind the development of this API come from the lack of such an API in OpenCL, similar API exists for proprietary GPGPU platform like CUDA.
 The API can be used to accelerate applications using multiple precision arithmetics like ECDSA, RSA, Research in physics, Big Data analysis Applications to name a few.
