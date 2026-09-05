@@ -6,6 +6,22 @@
 #define MULTIPLYOPERANDSCANNING 5
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
+#define COMPARE        8
+#define REDUCE         9
+#define MODMUL        10
+#define MODEXP        11
+#define EXPONENTIATION 12
+#define DIVIDE        13
+#define ISQRT         14
+#define MODMUL_R2     15
+
+typedef unsigned short xword;
+#define XW      16
+#define XWMASK  0xFFFFu
+#define XT      WORDLENGTH_T
+#define XIDX(g,i)   ((size_t)(g) * (size_t)XT + (size_t)(i))
+#define XIDX2(g,i)  ((size_t)(g) * (size_t)(2 * XT) + (size_t)(i))
+
 #include <mpaKernel_16bits.h>
 
 void addPrime(__global ushort*  outputBytes, const size_t ID, __private ushort PRIME[]){
@@ -310,24 +326,6 @@ int compareResultPrivPrime(__private ushort resultPrivate[],__private ushort PRI
     for ( i = WORDLENGTH_T-1; i >= 0; i--) outputBytes[ID*WORDLENGTH_T+i]=    resultPrivate[i+1];
 
 }
-
-
-
-#define COMPARE        8
-#define REDUCE         9
-#define MODMUL        10
-#define MODEXP        11
-#define EXPONENTIATION 12
-#define DIVIDE        13
-#define ISQRT         14
-#define MODMUL_R2     15
-
-typedef unsigned short xword;
-#define XW      16
-#define XWMASK  0xFFFFu
-#define XT      WORDLENGTH_T
-#define XIDX(g,i)   ((size_t)(g) * (size_t)XT + (size_t)(i))
-#define XIDX2(g,i)  ((size_t)(g) * (size_t)(2 * XT) + (size_t)(i))
 
 inline xword xaddc(xword a, xword b, xword cin, xword *cout)
 {
