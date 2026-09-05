@@ -42,12 +42,15 @@ endif
 
 BENCH := mpa_8bits mpa_16bits mpa_32bits
 
-.PHONY: all test bench perf compare ecdsa run clean
+.PHONY: all test bench perf compare ecdsa run report clean
 
-all: mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run $(BENCH)
+all: mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run GPU_Host $(BENCH)
 
 # The dependency-free host: C99 and an OpenCL ICD, nothing else. The explicit
 # rule keeps it away from the mpa_% pattern below, which links GMP and OpenSSL.
+GPU_Host: GPU_Host.c mpa_ref.h
+	$(CC) $(CFLAGS) $(OMPFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(OMPLIBS) $(CL_LDLIBS) -lgmp -lcrypto
+
 mpa_run: mpa_run.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(CL_LDLIBS)
 
@@ -97,6 +100,9 @@ compare: mpa_compare
 run: mpa_run
 	./mpa_run $(RUNARGS)
 
+report: GPU_Host
+	./GPU_Host $(REPORTARGS)
+
 # Batched P-256 ECDSA verification, validated against OpenSSL.
 ecdsa: ecdsa_bench
 	./ecdsa_bench $(ECDSAARGS)
@@ -105,4 +111,4 @@ mpa_%: mpa_%.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(CL_LDLIBS) -lgmp -lcrypto
 
 clean:
-	rm -f mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run $(BENCH)
+	rm -f mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run GPU_Host $(BENCH)
