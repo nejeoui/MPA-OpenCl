@@ -175,7 +175,7 @@ int main(int argc, char **argv)
     mpzToWords(R2P, par + T);
     mpzToWords(N, par + 2 * T);
     mpzToWords(R2N, par + 3 * T);
-    { /* G in Montgomery form */
+    {
         mpz_t gm; mpz_init(gm);
         mpz_mul_2exp(gm, GX, 256); mpz_mod(gm, gm, P); mpzToWords(gm, par + 4 * T);
         mpz_mul_2exp(gm, GY, 256); mpz_mod(gm, gm, P); mpzToWords(gm, par + 5 * T);
@@ -183,7 +183,6 @@ int main(int argc, char **argv)
     }
     par[6 * T]     = (uint32_t)mprime_p;
     par[6 * T + 1] = (uint32_t)mprime_n;
-    /* r + n can exceed p only when p - n is large enough; P-256 has p > n. */
     {
         mpz_t d; mpz_init(d); mpz_sub(d, P, N);
         par[6 * T + 2] = (mpz_sgn(d) > 0) ? 1u : 0u;
@@ -223,7 +222,6 @@ int main(int argc, char **argv)
 
         BIGNUM *rr = BN_dup(r), *ss = BN_dup(s);
         if ((int)(i % 100) < tamperPct) {
-            /* flip one bit of r: the signature must now be rejected */
             BN_set_bit(rr, (int)(i % 200));
             BN_clear_bit(rr, (int)((i + 1) % 200));
             nTamper++;
@@ -238,13 +236,13 @@ int main(int argc, char **argv)
         BN_free(rr); BN_free(ss);
         ECDSA_SIG_free(sg);
 
-        { /* e = digest as a 256-bit integer */
+        {
             mpz_t e; mpz_init(e);
             mpz_import(e, 32, 1, 1, 1, 0, digests[i]);
             mpzToWords(e, hMsg + i * T);
             mpz_clear(e);
         }
-        { /* public key affine coordinates */
+        {
             BIGNUM *qx = BN_new(), *qy = BN_new();
             EC_POINT_get_affine_coordinates(grp, EC_KEY_get0_public_key(k), qx, qy, bctx);
             bnToWords(qx, hPub + i * 2 * T);

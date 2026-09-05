@@ -241,8 +241,8 @@ typedef struct { const char *cl; const char *name; int wbits; const char *flags;
 #define MPA_OPT_FLAGS "-DMPA_MULHI=1 -DMPA_REGACC=1 -DMPA_FUSED_CIOS=1 -DMPA_UNROLL=1"
 
 static const Variant VARIANTS[] = {
-    { "mpaKernels_8bits.cl",     "w8",      8,  "", 0 },
-    { "mpaKernel_16bits.cl",     "w16",     16, "", 0 },
+    { "mpaKernels_8bits.cl",     "w8",      8,  "", 1 },
+    { "mpaKernel_16bits.cl",     "w16",     16, "", 1 },
     { "mpaKernel_32bits.cl",     "w32",     32, "", 0 },
     { "mpaKernel_32bits_opt.cl", "w32-opt", 32, MPA_OPT_FLAGS, 1 },
     { "mpaKernel_32bits_opt.cl", "w32-o64", 32, "-DMPA_REGACC=1 -DMPA_FUSED_CIOS=1 -DMPA_UNROLL=1", 1 },

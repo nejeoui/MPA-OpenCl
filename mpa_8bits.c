@@ -286,7 +286,7 @@ unsigned long long int iterations;
        unsigned long MPRIME;
 
     WORDT* PRIME;
-    PRIME= (WORDT*)malloc(WORDLENGTH*sizeof(WORDT));
+    PRIME= (WORDT*)calloc(2*WORDLENGTH, sizeof(WORDT));
     if (!PRIME) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
      mpz_t bigPrime;
      mpz_init(bigPrime);
@@ -331,6 +331,14 @@ unsigned long long int iterations;
     }
     mpaToWords(bigPrime, PRIME, WORDLENGTH, WORDSIZE);
     MPRIME = mpaMPrime(bigPrime, WORDSIZE);
+    {
+        mpz_t r2;
+        mpz_init(r2);
+        mpz_ui_pow_ui(r2, 2, (unsigned long)(2 * BITSLENGTH));
+        mpz_mod(r2, r2, bigPrime);
+        mpaToWords(r2, PRIME + WORDLENGTH, WORDLENGTH, WORDSIZE);
+        mpz_clear(r2);
+    }
     }
 
     struct timespec tstart={0,0}, tend_init={0,0} , tend_createContext={0,0},
@@ -428,7 +436,7 @@ unsigned long long int iterations;
     else Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, K*sizeof(unsigned char), NULL, &ret);
 
     Omobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 4*sizeof(int), NULL, &ret);
-    Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, WORDLENGTH*sizeof(unsigned char), NULL, &ret);
+    Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*WORDLENGTH*sizeof(unsigned char), NULL, &ret);
 
     ret = clEnqueueWriteBuffer(command_queue, Amobj, CL_TRUE, 0, K*sizeof(unsigned char), A, 0, NULL, NULL);
     ret = clEnqueueWriteBuffer(command_queue, Bmobj, CL_TRUE, 0, K*sizeof(unsigned char), B, 0, NULL, NULL);
@@ -438,7 +446,7 @@ unsigned long long int iterations;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3]=(int)(unsigned int)MPRIME;
 
     ret = clEnqueueWriteBuffer(command_queue, Omobj, CL_TRUE, 0, 4*sizeof(int), OPERATOR_WORDSIZE_BITSLENGHT_MPRIME , 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, WORDLENGTH*sizeof(unsigned char), PRIME, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, 2*WORDLENGTH*sizeof(unsigned char), PRIME, 0, NULL, NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_loadTomemory);
 

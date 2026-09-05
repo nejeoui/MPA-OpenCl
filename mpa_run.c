@@ -1,35 +1,3 @@
-/*
- * mpa_run.c - minimal MPA-OpenCL host.
- *
- * Standard C99 plus an OpenCL 1.2 ICD. No GMP, no OpenSSL.
- *
- * Everything the kernel consumes is a plain word array. Only two values are
- * derived, and neither needs arbitrary precision:
- *
- *   m'      one machine word, by Hensel lifting  (mprime32)
- *   R^2 p   a modular doubling loop              (compute_r2)
- *
- * R^2 is read by MODMUL_R2 alone; MODMUL and MODEXP build the Montgomery
- * domain in-kernel via toMontN, and the remaining operators ignore it.
- *
- * Word order is big-endian: index 0 is most significant, index T-1 least.
- * That matches op_add in the kernel, which propagates carry from T-1 down.
- *
- * Usage:
- *   ./mpa_run <op> <p-hex> <a-hex> <b-hex> [<a-hex> <b-hex> ...]
- *   ./mpa_run <op> <p-hex> <a-hex> [<a-hex> ...]          (unary operators)
- *
- * The modulus sets the operand width: T = ceil(hex digits of p / 8) words.
- * Operators that take no modulus still need it as a width argument.
- *
- *   MPA_KERNEL=file.cl   override the kernel source (default: the opt kernel)
- *   MPA_BUILD="-D..."    extra build options appended after -DWORDLENGTH_T
- *
- * The buffer layout here is the kernel's default: item g owns the contiguous
- * words [g*T, g*T+T). Building with -DMPA_INTERLEAVED=1 switches the kernel to
- * a strided layout that this host does not mirror, so it is rejected rather
- * than answered wrongly.
- */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +26,6 @@
 #define ISQRT                   14
 #define MODMUL_R2               15
 
-/* name, opcode, 2T-word output, single operand, needs m', needs R^2 */
 static const struct {
     const char *name;
     int op, wide, unary, mont, r2;
@@ -96,10 +63,6 @@ static void die(const char *msg)
     exit(EXIT_FAILURE);
 }
 
-/* ---------------------------------------------------------------- bignum --
- * Four small routines over big-endian word arrays. Between them they cover
- * everything the host has to know about multi-precision arithmetic.
- */
 
 static int hexval(char c)
 {
@@ -109,7 +72,6 @@ static int hexval(char c)
     return -1;
 }
 
-/* Strip an 0x prefix and leading zeros; returns the significant digit count. */
 static const char *hex_body(const char *hex, size_t *len)
 {
     size_t n = strlen(hex);
@@ -122,7 +84,6 @@ static const char *hex_body(const char *hex, size_t *len)
     return hex;
 }
 
-/* Right-aligned hex into T words. Returns -1 if it does not fit or is not hex. */
 static int hex_to_words(const char *hex, uint32_t *w, int T)
 {
     size_t n;
@@ -161,7 +122,6 @@ static int cmp_words(const uint32_t *a, const uint32_t *b, int n)
     return 0;
 }
 
-/* a -= b, wrapping mod 2^(32n); the borrow out is deliberately discarded. */
 static void sub_wrap(uint32_t *a, const uint32_t *b, int n)
 {
     uint32_t borrow = 0;
@@ -172,7 +132,6 @@ static void sub_wrap(uint32_t *a, const uint32_t *b, int n)
     }
 }
 
-/* r = 2r mod p, given r < p. */
 static void mod_double(uint32_t *r, const uint32_t *p, int n)
 {
     uint32_t carry = 0;
@@ -181,14 +140,9 @@ static void mod_double(uint32_t *r, const uint32_t *p, int n)
         r[i] = (r[i] << 1) | carry;
         carry = hi;
     }
-    /* 2r < 2p, so a single conditional subtraction suffices. When the shift
-     * overflowed, the true value is 2^(32n) + r and exceeds p by definition,
-     * and the wrapped subtraction lands on the right T-word result. */
     if (carry || cmp_words(r, p, n) >= 0) sub_wrap(r, p, n);
 }
 
-/* r2 = 2^(2*32*T) mod p. This is the only place the host does real
- * multi-precision work, and only MODMUL_R2 needs the result. */
 static void compute_r2(uint32_t *r2, const uint32_t *p, int T)
 {
     memset(r2, 0, (size_t)T * sizeof *r2);
@@ -197,17 +151,13 @@ static void compute_r2(uint32_t *r2, const uint32_t *p, int T)
     for (int i = 0; i < 64 * T; i++) mod_double(r2, p, T);
 }
 
-/* m' = -p^-1 mod 2^32. An inverse mod 2^32 depends only on p mod 2^32, so
- * this is a single-word computation: four Newton steps from a seed correct
- * to 3 bits carry it to 3 -> 6 -> 12 -> 24 -> 48 bits. */
 static uint32_t mprime32(uint32_t p0)
 {
-    uint32_t x = p0;                       /* p0 odd => correct mod 2^3 */
+    uint32_t x = p0;
     for (int i = 0; i < 4; i++) x *= 2u - p0 * x;
     return (uint32_t)(-(int32_t)x);
 }
 
-/* ---------------------------------------------------------------- OpenCL -- */
 
 static char *read_file(const char *path, size_t *len)
 {
@@ -263,7 +213,6 @@ int main(int argc, char **argv)
         if (strcmp(argv[1], OPS[i].name) == 0) { oi = i; break; }
     if (oi < 0) die("unknown operator");
 
-    /* The modulus fixes the width. */
     size_t plen;
     hex_body(argv[2], &plen);
     const int T = (int)((plen + 7) / 8);
@@ -281,7 +230,7 @@ int main(int argc, char **argv)
     uint32_t *hA = calloc(items * (size_t)T, sizeof *hA);
     uint32_t *hB = calloc(items * (size_t)T, sizeof *hB);
     uint32_t *hC = calloc(items * (size_t)outWords, sizeof *hC);
-    uint32_t *hP = calloc((size_t)T * 2, sizeof *hP);   /* p, then R^2 */
+    uint32_t *hP = calloc((size_t)T * 2, sizeof *hP);
     if (!hA || !hB || !hC || !hP) die("out of memory");
 
     if (hex_to_words(argv[2], hP, T) != 0) die("bad modulus");
@@ -306,8 +255,8 @@ int main(int argc, char **argv)
 
     cl_int opBuf[4];
     opBuf[0] = OPS[oi].op;
-    opBuf[1] = 32;                    /* word size  */
-    opBuf[2] = T * 32;                /* bit length */
+    opBuf[1] = 32;
+    opBuf[2] = T * 32;
     opBuf[3] = (cl_int)m_prime;
 
     cl_device_id dev = pick_device();

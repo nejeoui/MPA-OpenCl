@@ -17,27 +17,28 @@ Fifteen operators, spanning thirteen operations: two of the operations have two
 operators each, computing the same result by different routes, and the pair
 shares a row number below. Operator codes run 1 to 15 with no gaps.
 
-All fifteen are implemented in `mpaKernel_32bits_opt.cl` and verified against
-GMP by `mpa_test`. The three original kernels (`mpaKernel_32bits.cl`,
-`mpaKernel_16bits.cl`, `mpaKernels_8bits.cl`) implement seven of them.
+All fifteen are implemented in `mpaKernel_32bits_opt.cl`, `mpaKernels_8bits.cl`
+and `mpaKernel_16bits.cl`, and verified against GMP by `mpa_test` at every word
+size. `mpaKernel_32bits.cl` implements the original seven only; it is kept as
+the unoptimized 32-bit baseline that `mpa_bench` measures the others against.
 
-| # | Operation | Code | Kernels |
-|---|---|---|---|
-| 1 | Big number comparison | `COMPARE` = 8 | opt |
-| 2 | Big number addition | `ADD` = 1 | all |
-| 3 | Big number subtraction | `SUBTRACT` = 2 | all |
-| 4 | Big number multiplication, operand scanning | `MULTIPLYOPERANDSCANNING` = 5 | all |
-|   | Big number multiplication, product scanning | `MULTIPLYPRODUCTSCANNING` = 6 | all |
-| 5 | Big number exponentiation | `EXPONENTIATION` = 12 | opt |
-| 6 | Big number division | `DIVIDE` = 13 | opt |
-| 7 | Big number integer square root | `ISQRT` = 14 | opt |
-| 8 | Big number reduction | `REDUCE` = 9 | opt |
-| 9 | Modular addition | `ADDMOD` = 3 | all |
-| 10 | Modular subtraction | `SUBTRACTMOD` = 4 | all |
-| 11 | Modular multiplication | `MODMUL` = 10 | opt |
-|    | Modular multiplication, R² variant | `MODMUL_R2` = 15 | opt |
-| 12 | Montgomery multiplication | `MONTGOMERYMULTIPLICATION` = 7 | all |
-| 13 | Modular exponentiation | `MODEXP` = 11 | opt |
+| # | Operation | Code | w8 | w16 | w32 | opt |
+|---|---|---|---|---|---|---|
+| 1 | Big number comparison | `COMPARE` = 8 | ✓ | ✓ | — | ✓ |
+| 2 | Big number addition | `ADD` = 1 | ✓ | ✓ | ✓ | ✓ |
+| 3 | Big number subtraction | `SUBTRACT` = 2 | ✓ | ✓ | ✓ | ✓ |
+| 4 | Big number multiplication, operand scanning | `MULTIPLYOPERANDSCANNING` = 5 | ✓ | ✓ | ✓ | ✓ |
+|   | Big number multiplication, product scanning | `MULTIPLYPRODUCTSCANNING` = 6 | ✓ | ✓ | ✓ | ✓ |
+| 5 | Big number exponentiation | `EXPONENTIATION` = 12 | ✓ | ✓ | — | ✓ |
+| 6 | Big number division | `DIVIDE` = 13 | ✓ | ✓ | — | ✓ |
+| 7 | Big number integer square root | `ISQRT` = 14 | ✓ | ✓ | — | ✓ |
+| 8 | Big number reduction | `REDUCE` = 9 | ✓ | ✓ | — | ✓ |
+| 9 | Modular addition | `ADDMOD` = 3 | ✓ | ✓ | ✓ | ✓ |
+| 10 | Modular subtraction | `SUBTRACTMOD` = 4 | ✓ | ✓ | ✓ | ✓ |
+| 11 | Modular multiplication | `MODMUL` = 10 | ✓ | ✓ | — | ✓ |
+|    | Modular multiplication, R² variant | `MODMUL_R2` = 15 | ✓ | ✓ | — | ✓ |
+| 12 | Montgomery multiplication | `MONTGOMERYMULTIPLICATION` = 7 | ✓ | ✓ | ✓ | ✓ |
+| 13 | Modular exponentiation | `MODEXP` = 11 | ✓ | ✓ | — | ✓ |
 
 ## Data layout and conventions
 
