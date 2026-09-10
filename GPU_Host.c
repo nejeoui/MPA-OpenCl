@@ -25,12 +25,13 @@ typedef struct {
 } Env;
 
 typedef struct {
-    long   items;
+    long   items;      /* what the CPU library baselines ran */
+    long   devItems;   /* what each OpenCL device ran */
     double gmp1, gmpN, ossl;
 } CpuRow;
 
 typedef struct {
-    int    attempted, built;
+    int    attempted, built, timedout;
     long   items, mismatches;
     double kernel_s, e2e_s;
 } GpuCell;
@@ -57,6 +58,17 @@ typedef struct {
 static DevInfo g_devs[MAXDEV];
 static int     g_ndev = 0;
 static int     g_primary = 0;
+static int     g_minItems = 64;
+/* 0 = let the runtime pick (the default, and what every published report
+ * used). A runtime that derives the work-group size from the kernel's
+ * register usage - NVIDIA's, Apple's - always picks a launchable one. PoCL's
+ * CUDA backend does not, and a register-heavy kernel such as REDUCE at w8
+ * (T=32 words) then aborts with CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES. Set
+ * MPA_LOCAL_SIZE=64 there. Timings under an explicit size are not
+ * comparable with runtime-chosen ones, so it stays opt-in and is recorded
+ * in the report. */
+static long    g_localSize = 0;
+static int     g_autoSized = 0;
 static GpuCell g_gpu[MAXDEV][NVARIANTS][NMODULI][NOPS];
 static CgbnRow g_cgbn[256];
 static int     g_ncgbn = 0;
@@ -64,7 +76,24 @@ static Env     g_env;
 static char    g_reportPath[512], g_csvPath[512];
 static volatile sig_atomic_t g_interrupted = 0;
 
-static void onSigint(int s) { (void)s; g_interrupted = 1; }
+/* A single Ctrl-C asks for a clean stop, but the flag is only read between
+ * cells and the process is usually parked in clFinish(), which does not return
+ * until the kernel does - minutes, for a wide MODEXP. So the first signal looks
+ * like it did nothing. Honour a second one immediately: on rented hardware,
+ * waiting out a cell you have already decided to abandon is pure cost.
+ * write() and _exit() are async-signal-safe; printf() and exit() are not. */
+static void onSigint(int s)
+{
+    (void)s;
+    if (g_interrupted) {
+        static const char m[] = "\ninterrupted twice, exiting now\n";
+        ssize_t ignored = write(2, m, sizeof m - 1); (void)ignored;
+        _exit(130);
+    }
+    g_interrupted = 1;
+    static const char m[] = "\nstopping after this cell; Ctrl-C again to exit now\n";
+    ssize_t ignored = write(2, m, sizeof m - 1); (void)ignored;
+}
 
 static double now_s(void)
 {
@@ -279,27 +308,43 @@ static void writeReport(int items, int reps, double elapsed, int complete);
 
 int main(int argc, char **argv)
 {
-    int items = 20000, reps = 5, budget = 0;
+    int items = 20000, reps = 5, budget = 0, minItems = 64;
+    int gaveItems = 0, gaveMin = 0;
     const char *only = NULL;
     const char *wantDev = "all";
+    int printSizing = 0;
 
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--items")  && i+1 < argc) items  = atoi(argv[++i]);
+        if (!strcmp(argv[i], "--items")  && i+1 < argc) { items = atoi(argv[++i]); gaveItems = 1; }
         else if (!strcmp(argv[i], "--reps")   && i+1 < argc) reps   = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--min-items") && i+1 < argc) { minItems = atoi(argv[++i]); gaveMin = 1; }
         else if (!strcmp(argv[i], "--budget") && i+1 < argc) budget = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--variant")&& i+1 < argc) only   = argv[++i];
         else if (!strcmp(argv[i], "--devices")&& i+1 < argc) wantDev= argv[++i];
         else if (!strcmp(argv[i], "--verbose")) g_verbose = 1;
+        else if (!strcmp(argv[i], "--print-sizing")) printSizing = 1;
+        else if (!strcmp(argv[i], "--dump-moduli")) {
+            for (int k = 0; k < NMODULI; k++)
+                printf("%s\t%d\t%s\n", MODULI[k].name, MODULI[k].bits, MODULI[k].hex);
+            return 0;
+        }
         else {
             fprintf(stderr,
-                "usage: %s [--items N] [--reps N] [--budget SECONDS] "
-                "[--variant w8|w16|w32|w32-opt|w32-o64] [--devices all|gpu|cpu] [--verbose]\n", argv[0]);
+                "usage: %s [--items N] [--reps N] [--min-items N] [--budget SECONDS] "
+                "[--variant w8|w16|w32|w32-opt|w32-o64] [--devices all|gpu|cpu] [--verbose]\n"
+                "       %s --dump-moduli    (name/bits/hex for cgbn_bench)\n"
+                "       %s --print-sizing   (the auto-derived items/min-items, then exit)\n",
+                argv[0], argv[0], argv[0]);
             return 2;
         }
     }
     if (items < 64) items = 64;
     if (reps  < 1)  reps  = 1;
 
+    { const char *ls = getenv("MPA_LOCAL_SIZE");
+      if (ls && *ls) { g_localSize = atol(ls);
+          if (g_localSize < 0) g_localSize = 0;
+          if (g_localSize > 1) printf("local work size: %ld (MPA_LOCAL_SIZE)\n", g_localSize); } }
     signal(SIGINT, onSigint);
 
     rngState = 88172645463325252ULL;
@@ -309,6 +354,44 @@ int main(int argc, char **argv)
 
     detectCpu(&g_env);
     detectOs(&g_env);
+
+    /* Sizing the workload by hand is the easiest way to publish a misleading
+     * number: a floor tuned for one card starves a larger one, and an --items
+     * tuned for a large host gets the run OOM-killed on a small one. Both
+     * inputs are already known by this point, so derive whichever the caller
+     * did not give; an explicit flag always wins.
+     *
+     *   --min-items ~ 700 x compute units, the rule validated on the RTX 3060.
+     *   --items     ~ 10 x that, capped by host RAM: the CPU-library pass holds
+     *                 --items GMP integers and OpenSSL BIGNUMs per cell and runs
+     *                 whatever --devices says, so RAM, not VRAM, is the limit.
+     *                 5000 per GB sits under the observed boundary - a 31 GB
+     *                 host completed 200000, a 16 GB host was OOM-killed at it. */
+    if ((!gaveMin || !gaveItems) && g_ndev > 0 && g_devs[g_primary].isGpu) {
+        long cu = (long)g_devs[g_primary].cus;
+        if (!gaveMin && cu > 0) {
+            minItems = (int)(cu * 700);
+            if (minItems < 64) minItems = 64;
+        }
+        if (!gaveItems) {
+            long want = (long)minItems * 10;
+            long cap  = g_env.ramGB > 0 ? (long)(g_env.ramGB * 5000.0) : want;
+            items = (int)(want < cap ? want : cap);
+            if (items < minItems) items = minItems;
+            if (items < 64) items = 64;
+        }
+        g_autoSized = 1;
+        fprintf(stderr, "auto-sized: --items %d --min-items %d  (%ld CU, %.1f GB host RAM)%s%s\n",
+                items, minItems, cu, g_env.ramGB,
+                gaveItems ? "  [--items given]" : "",
+                gaveMin   ? "  [--min-items given]" : "");
+    }
+    /* A runner script needs the same item count for cgbn_bench that the sweep
+     * will use, and cgbn_bench has to run first. Letting the script guess would
+     * put the two out of step, so let it ask instead. */
+    if (printSizing) { printf("items=%d min_items=%d\n", items, minItems); return 0; }
+
+    g_minItems = minItems;
 #ifdef _OPENMP
     g_env.threads = omp_get_max_threads();
 #else
@@ -376,6 +459,19 @@ int main(int argc, char **argv)
             int div = op->cost * (mod->bits / 256 > 1 ? mod->bits / 256 : 1);
             long n = items / (div > 1 ? div : 1);
             if (n < 64) n = 64;
+            /* The floor exists so a GPU is not left near-idle. Forcing it on the
+             * CPU libraries instead makes a full-width MODEXP take minutes per
+             * repetition, so they keep the cost-scaled count. */
+            long dn = n < minItems ? minItems : n;
+            if (dn > items) dn = items;
+            /* OpenCL requires the global size to be a whole multiple of the
+             * local size, so trim rather than round up: padding would launch
+             * work-items past the end of the buffers. */
+            if (g_localSize > 1 && dn % g_localSize) {
+                long snapped = dn - (dn % g_localSize);
+                if (snapped >= g_localSize) dn = snapped;
+            }
+            g_cpu[m][o].devItems = dn;
 
             rngState = 88172645463325252ULL + (uint64_t)m * 1000u + (uint64_t)o;
             mpz_t *A = malloc(sizeof(mpz_t) * (size_t)n);
@@ -529,9 +625,19 @@ int main(int argc, char **argv)
                 const Op *op = &OPS[o];
                 GpuCell *cell = &g_gpu[d][v][m][o];
                 if (op->ext && !var->ext) continue;
+                /* The budget was previously only consulted once per (variant,
+                 * modulus). One cell can run for hours - MODEXP at 2048 bits
+                 * with an 8-bit word size is ~3000 modular multiplications per
+                 * item - so the flag could overrun without bound on exactly the
+                 * rented hardware it exists to protect. */
+                if (budget > 0 && now_s() - t_start > budget) {
+                    fprintf(stderr, "budget exhausted, stopping\n");
+                    g_interrupted = 1;
+                    break;
+                }
                 cell->attempted = 1;
 
-                const long n = g_cpu[m][o].items;
+                const long n = g_cpu[m][o].devItems;
                 if (n <= 0) { cell->attempted = 0; continue; }
                 const int outWords = op->wide ? 2*T : T;
                 cell->items = n;
@@ -546,8 +652,8 @@ int main(int argc, char **argv)
                 mpz_t a, b, e; mpz_inits(a, b, e, NULL);
                 for (long j = 0; j < n; j++) {
                     makeCase((int)j, op->op, op->modular, p, mod->bits, mod, a, b);
-                    mpzToWords(a, hA, (size_t)j*T, T, var->wbits);
-                    mpzToWords(b, hB, (size_t)j*T, T, var->wbits);
+                    mpzToWordsAt(a, hA, (size_t)j, T, var->wbits, var->interleaved, (size_t)n);
+                    mpzToWordsAt(b, hB, (size_t)j, T, var->wbits, var->interleaved, (size_t)n);
                     reference(op->op, a, b, p, mod->bits, e);
                     mpzToWords(e, hE, (size_t)j*outWords, outWords, var->wbits);
                 }
@@ -583,7 +689,10 @@ int main(int argc, char **argv)
                 clEnqueueWriteBuffer(q, dB, CL_TRUE, 0, inB, hB, 0, NULL, NULL);
 
                 size_t global = (size_t)n;
-                if (clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, NULL, 0, NULL, NULL) != CL_SUCCESS
+                size_t lsz    = (size_t)g_localSize;
+                const size_t *lp = g_localSize > 0 ? &lsz : NULL;
+                double t_verify = now_s();
+                if (clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL) != CL_SUCCESS
                     || clFinish(q) != CL_SUCCESS) {
                     fprintf(stderr, "  launch failed %s/%s/%s\n", var->name, mod->name, op->name);
                     goto cleanup;
@@ -593,25 +702,44 @@ int main(int argc, char **argv)
 
                 for (long j = 0; j < n; j++)
                     for (int w = 0; w < outWords; w++)
-                        if (loadWord(hC, (size_t)j*outWords + w, var->wbits) !=
+                        if (loadWord(hC, addrOf(var->interleaved, (size_t)j, w, outWords, (size_t)n), var->wbits) !=
                             loadWord(hE, (size_t)j*outWords + w, var->wbits)) { cell->mismatches++; break; }
 
+                /* The verification launch is one launch of exactly the work the
+                 * timed phase repeats, which makes it a free and accurate cost
+                 * estimate: 2 warm-ups plus reps x 2 launches to come. Skipping a
+                 * cell that cannot fit leaves its correctness result intact and
+                 * lets the remaining cells run, which beats spending the whole
+                 * budget on one of them. */
+                t_verify = now_s() - t_verify;
+                if (budget > 0) {
+                    double projected = t_verify * (double)(2 + 2*reps);
+                    double left      = (double)budget - (now_s() - t_start);
+                    if (projected > left) {
+                        cell->timedout = 1;
+                        fprintf(stderr, "  [%d] %-8s %-18s %-26s n=%-7ld skipped:"
+                                " needs ~%.0fs, %.0fs left\n",
+                                d, var->name, modShort(mod), op->name, n, projected, left);
+                        goto cleanup;
+                    }
+                }
+
                 for (int r = 0; r < 2; r++) {
-                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, NULL, 0, NULL, NULL);
+                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
                     clFinish(q);
                 }
                 double *tk = malloc(sizeof(double)*(size_t)reps);
                 double *te = malloc(sizeof(double)*(size_t)reps);
                 for (int r = 0; r < reps; r++) {
                     double t0 = now_s();
-                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, NULL, 0, NULL, NULL);
+                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
                     clFinish(q);
                     tk[r] = now_s() - t0;
 
                     double t1 = now_s();
                     clEnqueueWriteBuffer(q, dA, CL_FALSE, 0, inB, hA, 0, NULL, NULL);
                     clEnqueueWriteBuffer(q, dB, CL_FALSE, 0, inB, hB, 0, NULL, NULL);
-                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, NULL, 0, NULL, NULL);
+                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
                     clEnqueueReadBuffer(q, dC, CL_TRUE, 0, outB, hC, 0, NULL, NULL);
                     clFinish(q);
                     te[r] = now_s() - t1;
@@ -736,6 +864,41 @@ static void writeReport(int items, int reps, double elapsed, int complete)
         fprintf(f, "> **Partial report.** The run was interrupted or hit its time budget.\n"
                    "> Rows that never ran are marked `n/a`.\n\n");
 
+    /* A reader who opens NVIDIA_GeForce_RTX_5090_Report.md reasonably assumes
+     * NVIDIA's OpenCL runtime produced it. On a WSL2 node no vendor ICD exists
+     * and the kernels go through PoCL instead, while the CGBN column stays
+     * native CUDA and the GMP/OpenSSL columns stay native CPU code. The device
+     * table says so in section 1, but by then the tables have been read. Say it
+     * first, where a comparison starts. */
+    {
+        const char *ver = g_devs[g_primary].clver;
+        int thirdParty = (strstr(ver, "PoCL") || strstr(ver, "pocl") ||
+                          strstr(ver, "Portable Computing Language") ||
+                          strstr(ver, "rusticl") || strstr(ver, "Mesa")) ? 1 : 0;
+        const char *arch = getenv("POCL_CUDA_GPU_ARCH");
+        if (thirdParty || g_localSize > 1) {
+            fprintf(f, "> **Not a vendor-runtime result.** ");
+            if (thirdParty)
+                fprintf(f, "The OpenCL rows were produced by a third-party runtime (`%s`), "
+                           "not the GPU vendor's own OpenCL implementation, so the kernels "
+                           "went through a different compiler than on any vendor-ICD host. ",
+                        ver);
+            if (thirdParty && strstr(ver, "sm_"))
+                fprintf(f, "PoCL caps its PTX target at `sm_75` unless `POCL_CUDA_GPU_ARCH` "
+                           "says otherwise (here: %s), so newer hardware is addressed through "
+                           "forward JIT rather than native codegen. ",
+                        arch && *arch ? arch : "unset");
+            if (g_localSize > 1)
+                fprintf(f, "The work-group size was forced to %ld rather than derived from "
+                           "kernel register usage. ", g_localSize);
+            fprintf(f, "\n>\n> The CGBN column is native CUDA and the GMP/OpenSSL columns are "
+                       "native CPU code, so **only the OpenCL columns carry this handicap**: "
+                       "treat the gap to CGBN as an upper bound and the margin over GMP and "
+                       "OpenSSL as a lower bound. Correctness results are unaffected - a kernel "
+                       "that matches GMP on every word is correct whichever compiler built it.\n\n");
+        }
+    }
+
     fprintf(f, "## 1. System under test\n\n");
     fprintf(f, "%d OpenCL device(s) exercised with the identical kernels and operands.\n\n", g_ndev);
     for (int d = 0; d < g_ndev; d++) {
@@ -756,7 +919,11 @@ static void writeReport(int items, int reps, double elapsed, int complete)
     fprintf(f, "| CGBN | %s |\n\n", g_ncgbn ? "cgbn_results.tsv loaded" : "not measured");
 
     fprintf(f, "## 2. Method\n\n");
-    fprintf(f, "- Base workload %d items, scaled down per operator by its cost weight and by modulus size; the exact count is in every row.\n", items);
+    if (g_localSize > 1)
+        fprintf(f, "- Work-group size forced to %ld via MPA_LOCAL_SIZE; the device item count is trimmed to a multiple of it. Runtimes that derive a launchable size from kernel register usage do not need this, and their timings are not directly comparable with these.\n", g_localSize);
+    if (g_autoSized)
+        fprintf(f, "- Workload auto-sized from the device and host: --min-items from 700 x compute units, --items from ten times that capped by host RAM. Either flag, given explicitly, overrides its half.\n");
+    fprintf(f, "- Base workload %d items, scaled down per operator by its cost weight and by modulus size. Device rows honour --min-items (%d) so the GPU is not left idle; the CPU libraries keep the smaller count because a full-width MODEXP there costs minutes. Both counts appear in every row as dev/cpu, and throughput is per-second so they remain comparable.\n", items, g_minItems);
     fprintf(f, "- %d timed repetitions, **minimum** reported. Two untimed warm-up launches precede them.\n", reps);
     fprintf(f, "- `kernel` times `clEnqueueNDRangeKernel` + `clFinish` only. `e2e` adds the host->device operand writes and the device->host result read.\n");
     fprintf(f, "- Every OpenCL device runs the same kernels on the same operands, so GPU and CPU-OpenCL columns are directly comparable.\n");
@@ -793,7 +960,7 @@ static void writeReport(int items, int reps, double elapsed, int complete)
     for (int d = 0; d < g_ndev; d++) {
         fprintf(f, "### Device %d - %s (%s)\n\n", d, g_devs[d].name, devClass(&g_devs[d]));
         for (int m = 0; m < NMODULI; m++) {
-            fprintf(f, "#### %s (%d-bit)\n\n| Operation | items |", MODULI[m].name, MODULI[m].bits);
+            fprintf(f, "#### %s (%d-bit)\n\n| Operation | items dev/cpu |", MODULI[m].name, MODULI[m].bits);
             for (int v = 0; v < NVARIANTS; v++) fprintf(f, " %s |", VARIANTS[v].name);
             fprintf(f, " GMP 1T | GMP %dT | OpenSSL %dT | CGBN |\n", g_env.threads, g_env.threads);
             fprintf(f, "|---|---|");
@@ -802,13 +969,14 @@ static void writeReport(int items, int reps, double elapsed, int complete)
             for (int o = 0; o < NOPS; o++) {
                 const CpuRow *cr = &g_cpu[m][o];
                 if (!cr->items) continue;
-                fprintf(f, "| %s | %ld |", OPS[o].name, cr->items);
+                fprintf(f, "| %s | %ld / %ld |", OPS[o].name, cr->devItems, cr->items);
                 char b[32];
                 for (int v = 0; v < NVARIANTS; v++) {
                     const GpuCell *c = &g_gpu[d][v][m][o];
                     if (!c->attempted)      fprintf(f, " - |");
                     else if (!c->built)     fprintf(f, " build failed |");
                     else if (c->mismatches) fprintf(f, " **WRONG** |");
+                    else if (c->timedout)   fprintf(f, " over budget |");
                     else { rate(b, sizeof b, c->kernel_s, c->items); fprintf(f, " %s |", b); }
                 }
                 rate(b, sizeof b, cr->gmp1, cr->items); fprintf(f, " %s |", b);

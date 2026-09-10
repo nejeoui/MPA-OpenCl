@@ -42,12 +42,29 @@ endif
 
 BENCH := mpa_8bits mpa_16bits mpa_32bits
 
-.PHONY: all test bench perf compare ecdsa run report clean
+.PHONY: all test bench perf compare ecdsa run report cgbn clean
 
 all: mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run GPU_Host $(BENCH)
 
 # The dependency-free host: C99 and an OpenCL ICD, nothing else. The explicit
 # rule keeps it away from the mpa_% pattern below, which links GMP and OpenSSL.
+# CGBN reference numbers. Optional and NVIDIA-only: needs nvcc plus a checkout
+# of https://github.com/NVlabs/CGBN. Deliberately outside `all` so the OpenCL
+# build never depends on a CUDA toolchain.
+NVCC      ?= nvcc
+CGBN_PATH ?= ./thirdparty/CGBN
+CUDA_ARCH ?= -arch=sm_70
+
+cgbn: cgbn_bench
+
+cgbn_bench: cgbn_bench.cu
+	@test -d "$(CGBN_PATH)/include" || { \
+	  echo "CGBN not found at $(CGBN_PATH)"; \
+	  echo "  git clone --depth 1 https://github.com/NVlabs/CGBN $(CGBN_PATH)"; \
+	  echo "  make cgbn CGBN_PATH=$(CGBN_PATH) CUDA_ARCH=-arch=sm_90"; \
+	  exit 1; }
+	$(NVCC) -O3 $(CUDA_ARCH) -I$(CGBN_PATH)/include $< -o $@ -lgmp
+
 GPU_Host: GPU_Host.c mpa_ref.h
 	$(CC) $(CFLAGS) $(OMPFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(OMPLIBS) $(CL_LDLIBS) -lgmp -lcrypto
 
@@ -111,4 +128,4 @@ mpa_%: mpa_%.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(CL_LDLIBS) -lgmp -lcrypto
 
 clean:
-	rm -f mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run GPU_Host $(BENCH)
+	rm -f mpa_test mpa_bench mpa_compare ecdsa_bench mpa_run GPU_Host cgbn_bench $(BENCH)

@@ -25,10 +25,10 @@ static void runBatch(cl_context ctx, cl_command_queue q, cl_kernel kern,
 
     for (int j = 0; j < items; j++) {
         makeCase(j, op->op, op->modular, p, bits, mod, a, b);
-        mpzToWords(a, hA, (size_t)j * T, T, wbits);
-        mpzToWords(b, hB, (size_t)j * T, T, wbits);
+        mpzToWordsAt(a, hA, (size_t)j, T, wbits, var->interleaved, (size_t)items);
+        mpzToWordsAt(b, hB, (size_t)j, T, wbits, var->interleaved, (size_t)items);
         reference(op->op, a, b, p, bits, e);
-        mpzToWords(e, hExp, (size_t)j * outWords, outWords, wbits);
+        mpzToWords(e, hExp, (size_t)j * outWords, outWords, wbits);  /* host side stays packed */
     }
     mpzToWords(p, hP, 0, T, wbits);
     {
@@ -72,7 +72,7 @@ static void runBatch(cl_context ctx, cl_command_queue q, cl_kernel kern,
     for (int j = 0; j < items; j++) {
         int ok = 1;
         for (int i = 0; i < outWords; i++) {
-            if (loadWord(hC, (size_t)j*outWords + i, wbits) !=
+            if (loadWord(hC, addrOf(var->interleaved, (size_t)j, i, outWords, (size_t)items), wbits) !=
                 loadWord(hExp, (size_t)j*outWords + i, wbits)) { ok = 0; break; }
         }
         if (!ok) { bad++; if (firstBad < 0) firstBad = j; }

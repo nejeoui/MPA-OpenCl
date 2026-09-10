@@ -236,16 +236,42 @@ static const Modulus MODULI[] = {
 };
 #define NMODULI ((int)(sizeof(MODULI)/sizeof(MODULI[0])))
 
-typedef struct { const char *cl; const char *name; int wbits; const char *flags; int ext; } Variant;
+typedef struct { const char *cl; const char *name; int wbits; const char *flags;
+                 int ext; int interleaved; } Variant;
+
+/* Where item `it`'s word `w` lives. The optimized kernel's MPA_INTERLEAVED
+ * layout strides by the work-item count so neighbouring threads touch
+ * neighbouring addresses; the default packs each item's words together. */
+static size_t addrOf(int interleaved, size_t it, int w, int nwords, size_t items)
+{
+    return interleaved ? (size_t)w * items + it : it * (size_t)nwords + (size_t)w;
+}
+
+/* mpzToWords with a stride, for the interleaved layout. */
+static void mpzToWordsAt(const mpz_t z, void *buf, size_t it, int nwords, int wbits,
+                         int interleaved, size_t items)
+{
+    mpz_t t;
+    uint32_t mask = (wbits == 32) ? 0xFFFFFFFFu : ((1u << wbits) - 1u);
+    mpz_init_set(t, z);
+    for (int i = nwords - 1; i >= 0; i--) {
+        storeWord(buf, addrOf(interleaved, it, i, nwords, items), wbits,
+                  (uint32_t)(mpz_get_ui(t) & mask));
+        mpz_tdiv_q_2exp(t, t, (mp_bitcnt_t)wbits);
+    }
+    mpz_clear(t);
+}
 
 #define MPA_OPT_FLAGS "-DMPA_MULHI=1 -DMPA_REGACC=1 -DMPA_FUSED_CIOS=1 -DMPA_UNROLL=1"
 
 static const Variant VARIANTS[] = {
-    { "mpaKernels_8bits.cl",     "w8",      8,  "", 1 },
-    { "mpaKernel_16bits.cl",     "w16",     16, "", 1 },
-    { "mpaKernel_32bits.cl",     "w32",     32, "", 0 },
-    { "mpaKernel_32bits_opt.cl", "w32-opt", 32, MPA_OPT_FLAGS, 1 },
-    { "mpaKernel_32bits_opt.cl", "w32-o64", 32, "-DMPA_REGACC=1 -DMPA_FUSED_CIOS=1 -DMPA_UNROLL=1", 1 },
+    { "mpaKernels_8bits.cl",     "w8",      8,  "", 1, 0 },
+    { "mpaKernel_16bits.cl",     "w16",     16, "", 1, 0 },
+    { "mpaKernel_32bits.cl",     "w32",     32, "", 0, 0 },
+    { "mpaKernel_32bits_opt.cl", "w32-opt", 32, MPA_OPT_FLAGS, 1, 0 },
+    { "mpaKernel_32bits_opt.cl", "w32-o64", 32, "-DMPA_REGACC=1 -DMPA_FUSED_CIOS=1 -DMPA_UNROLL=1", 1, 0 },
+    { "mpaKernel_32bits_opt.cl", "w32-il",  32, MPA_OPT_FLAGS " -DMPA_INTERLEAVED=1", 1, 1 },
+    { "mpaKernel_32bits_opt.cl", "w32-il64",32, "-DMPA_REGACC=1 -DMPA_FUSED_CIOS=1 -DMPA_UNROLL=1 -DMPA_INTERLEAVED=1", 1, 1 },
 };
 #define NVARIANTS ((int)(sizeof(VARIANTS)/sizeof(VARIANTS[0])))
 
