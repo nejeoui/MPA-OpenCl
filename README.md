@@ -215,3 +215,104 @@ sudo apt install libgmp-dev libssl-dev
 # macOS (OpenCL ships with the OS)
 brew install gmp openssl
 ```
+
+## How to test on an AMD card
+
+Everything in this repository is vendor-neutral OpenCL, so an AMD GPU runs the
+same kernels and the same harnesses as any other device. The only AMD-specific
+work is getting the card visible to the ICD loader; after that the commands are
+identical to every other platform.
+
+### 1. Check the device is reachable
+
+```sh
+ls -l /dev/kfd /dev/dri     # /dev/kfd must exist
+rocm-smi                    # or rocminfo
+clinfo --list               # the GPU must appear as an OpenCL device
+```
+
+`/dev/kfd` is the ROCm kernel interface, and its absence is fatal rather than
+fixable: a container that was not given the device — anything backed by WSL2,
+for instance — cannot run ROCm OpenCL at all, whatever `rocm-smi` reports
+elsewhere. Check this before installing anything.
+
+If `rocm-smi` works but `clinfo` lists no AMD platform, the ICD registration is
+missing rather than the driver:
+
+```sh
+sudo mkdir -p /etc/OpenCL/vendors
+echo libamdocl64.so | sudo tee /etc/OpenCL/vendors/amdocl64.icd
+```
+
+Two further conditions catch people out. A consumer card whose `gfx` target
+ROCm does not officially support needs the nearest supported one exported —
+`export HSA_OVERRIDE_GFX_VERSION=10.3.0` for gfx1031, for example — and a
+non-root user must be in the `video` and `render` groups.
+
+### 2. Build
+
+```sh
+sudo apt install ocl-icd-opencl-dev libgmp-dev libssl-dev clinfo
+make
+```
+
+There is no AMD-specific build step; the Makefile selects `-lOpenCL` on Linux.
+Skip `make cgbn`: CGBN is CUDA-only, so the CGBN columns of the report read
+`n/a` by design on any AMD device.
+
+### 3. Correctness before timings
+
+```sh
+./mpa_test --items 512 2>&1 | tee mpa_test_amd.log
+```
+
+This is the result worth having. `mpa_test` builds every kernel at every word
+size and checks every output word against GMP, so it is what tells you whether
+a different vendor's compiler agrees with the reference — a question no timing
+answers. Keep the log.
+
+### 4. Size the run before committing to it
+
+```sh
+./GPU_Host --devices gpu --print-sizing
+```
+
+`GPU_Host` derives `--min-items` as `700 x compute units` and `--items` as ten
+times that, capped by host RAM. AMD reports compute units generously, so on a
+large card the derived floor can reach six figures, and at that size a single
+wide `MODEXP` cell at 8-bit words can consume most of an hour on its own.
+`--print-sizing` shows the choice and exits, so look at the number first and
+override it if it is larger than the time you have.
+
+### 5. The sweep
+
+```sh
+./GPU_Host --devices gpu --min-items 20000 --budget 10800 --reps 5 2>&1 | tee sweep.log
+```
+
+Each flag earns its place. `--devices gpu` keeps the sweep off the CPU OpenCL
+device, which would otherwise repeat the entire sweep on the host processor at
+the GPU's item floor. `--min-items` overrides that floor so the per-operator cost
+weighting actually takes effect. `--budget` projects each cell's cost from its
+verification launch and skips what will not fit, which is the only thing
+standing between a wide `MODEXP` and a multi-hour cell.
+
+To guarantee the headline numbers exist even if the budget runs out, run the
+best variant on its own first — and copy the report before the next run, since
+the filename is derived from the device name and a second run overwrites it:
+
+```sh
+./GPU_Host --devices gpu --variant w32-il64 --min-items 20000 --budget 3600
+cp <Device>_Report.md  <Device>_w32-il64.md
+cp <Device>_Report.csv <Device>_w32-il64.csv
+```
+
+`w32-il64` is the variant to pick if you only run one: the interleaved layout
+wins the majority of cells on every device measured so far.
+
+### 6. What you get
+
+`<Device>_Report.md` and `<Device>_Report.csv`, rewritten after each variant, so
+an interrupted run keeps everything already measured. A first Ctrl-C stops after
+the current cell, which can take minutes; a second exits immediately. The
+"Partial report" banner clears only when the last variant finishes.
