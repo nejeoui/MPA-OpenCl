@@ -25,10 +25,13 @@ typedef struct {
 } Env;
 
 typedef struct {
-    long   items;      /* what the CPU library baselines ran */
-    long   devItems;   /* what each OpenCL device ran */
+    long   items;
+    long   devItems;
+    long   inner;
     double gmp1, gmpN, ossl;
 } CpuRow;
+
+#define CPU_TIMING_TARGET_S 0.005
 
 typedef struct {
     int    attempted, built, timedout, lost;
@@ -58,15 +61,10 @@ typedef struct {
 static DevInfo g_devs[MAXDEV];
 static int     g_ndev = 0;
 static int     g_primary = 0;
+static int     g_vorder[NVARIANTS];
+static int     g_nvorder = 0;
+static int     g_vdiv[NVARIANTS];
 static int     g_minItems = 64;
-/* 0 = let the runtime pick (the default, and what every published report
- * used). A runtime that derives the work-group size from the kernel's
- * register usage - NVIDIA's, Apple's - always picks a launchable one. PoCL's
- * CUDA backend does not, and a register-heavy kernel such as REDUCE at w8
- * (T=32 words) then aborts with CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES. Set
- * MPA_LOCAL_SIZE=64 there. Timings under an explicit size are not
- * comparable with runtime-chosen ones, so it stays opt-in and is recorded
- * in the report. */
 static long    g_localSize = 0;
 static int     g_autoSized = 0;
 static GpuCell g_gpu[MAXDEV][NVARIANTS][NMODULI][NOPS];
@@ -76,19 +74,9 @@ static Env     g_env;
 static char    g_reportPath[512], g_csvPath[512];
 static volatile sig_atomic_t g_interrupted = 0;
 
-/* Which device died, and where, so the report can say so instead of leaving
- * the reader to wonder why five variants are missing. */
 static int  g_devLost[MAXDEV];
 static char g_devLostAt[MAXDEV][128];
 
-/* A launch can fail for two very different reasons: this one kernel cannot run
- * here (too many registers, bad work-group size), or the device is gone - which
- * on a display-serving GPU means the driver's watchdog reset it out from under
- * a long kernel. The codes do not separate the two reliably: Intel and NVIDIA
- * both report CL_OUT_OF_RESOURCES for either. So ask the queue directly with a
- * trivial transfer; a reset context fails that too, a merely unhappy kernel
- * does not. Without this check one unlaunchable cell would abandon a device
- * that is still perfectly usable for every other configuration. */
 static int queueAlive(cl_command_queue q, cl_mem probe, const void *src, size_t bytes)
 {
     if (clEnqueueWriteBuffer(q, probe, CL_TRUE, 0, bytes, src, 0, NULL, NULL) != CL_SUCCESS)
@@ -96,12 +84,6 @@ static int queueAlive(cl_command_queue q, cl_mem probe, const void *src, size_t 
     return clFinish(q) == CL_SUCCESS;
 }
 
-/* A single Ctrl-C asks for a clean stop, but the flag is only read between
- * cells and the process is usually parked in clFinish(), which does not return
- * until the kernel does - minutes, for a wide MODEXP. So the first signal looks
- * like it did nothing. Honour a second one immediately: on rented hardware,
- * waiting out a cell you have already decided to abandon is pure cost.
- * write() and _exit() are async-signal-safe; printf() and exit() are not. */
 static void onSigint(int s)
 {
     (void)s;
@@ -263,6 +245,9 @@ static void enumerateDevices(const char *want)
 
 typedef struct { mpz_t lim, Rinv, tmp; int bits; } GmpCtx;
 
+typedef struct { GmpCtx gc; mpz_t r; char pad[64]; } CpuThreadGmp;
+typedef struct { BN_CTX *ctx; BIGNUM *r1, *r2; BN_MONT_CTX *mont; char pad[64]; } CpuThreadBn;
+
 static void gmpOp(int op, mpz_t r, const mpz_t a, const mpz_t b,
                   const mpz_t p, GmpCtx *c)
 {
@@ -329,6 +314,7 @@ static void writeReport(int items, int reps, double elapsed, int complete);
 int main(int argc, char **argv)
 {
     int items = 20000, reps = 5, budget = 0, minItems = 64;
+    const char *order = NULL;
     int gaveItems = 0, gaveMin = 0;
     const char *only = NULL;
     const char *wantDev = "all";
@@ -340,6 +326,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--min-items") && i+1 < argc) { minItems = atoi(argv[++i]); gaveMin = 1; }
         else if (!strcmp(argv[i], "--budget") && i+1 < argc) budget = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--variant")&& i+1 < argc) only   = argv[++i];
+        else if (!strcmp(argv[i], "--variants")&& i+1 < argc) order  = argv[++i];
         else if (!strcmp(argv[i], "--devices")&& i+1 < argc) wantDev= argv[++i];
         else if (!strcmp(argv[i], "--verbose")) g_verbose = 1;
         else if (!strcmp(argv[i], "--print-sizing")) printSizing = 1;
@@ -351,10 +338,14 @@ int main(int argc, char **argv)
         else {
             fprintf(stderr,
                 "usage: %s [--items N] [--reps N] [--min-items N] [--budget SECONDS] "
-                "[--variant w8|w16|w32|w32-opt|w32-o64] [--devices all|gpu|cpu] [--verbose]\n"
+                "[--variant NAME] [--variants NAME,NAME,...] [--devices all|gpu|cpu] [--verbose]\n"
+                "       %s   variants: w8 w16 w32 w32-opt w32-o64 w32-il w32-il64\n"
+                "       %s   --variants runs only those, in the order given, so a budget\n"
+                "       %s   spends itself on the kernels you care about first. Append\n"
+                "       %s   :N to a name to run it at items/N, e.g. --variants w32-il64,w8:10\n"
                 "       %s --dump-moduli    (name/bits/hex for cgbn_bench)\n"
                 "       %s --print-sizing   (the auto-derived items/min-items, then exit)\n",
-                argv[0], argv[0], argv[0]);
+                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
             return 2;
         }
     }
@@ -375,18 +366,6 @@ int main(int argc, char **argv)
     detectCpu(&g_env);
     detectOs(&g_env);
 
-    /* Sizing the workload by hand is the easiest way to publish a misleading
-     * number: a floor tuned for one card starves a larger one, and an --items
-     * tuned for a large host gets the run OOM-killed on a small one. Both
-     * inputs are already known by this point, so derive whichever the caller
-     * did not give; an explicit flag always wins.
-     *
-     *   --min-items ~ 700 x compute units, the rule validated on the RTX 3060.
-     *   --items     ~ 10 x that, capped by host RAM: the CPU-library pass holds
-     *                 --items GMP integers and OpenSSL BIGNUMs per cell and runs
-     *                 whatever --devices says, so RAM, not VRAM, is the limit.
-     *                 5000 per GB sits under the observed boundary - a 31 GB
-     *                 host completed 200000, a 16 GB host was OOM-killed at it. */
     if ((!gaveMin || !gaveItems) && g_ndev > 0 && g_devs[g_primary].isGpu) {
         long cu = (long)g_devs[g_primary].cus;
         if (!gaveMin && cu > 0) {
@@ -406,9 +385,44 @@ int main(int argc, char **argv)
                 gaveItems ? "  [--items given]" : "",
                 gaveMin   ? "  [--min-items given]" : "");
     }
-    /* A runner script needs the same item count for cgbn_bench that the sweep
-     * will use, and cgbn_bench has to run first. Letting the script guess would
-     * put the two out of step, so let it ask instead. */
+    if (order) {
+        char *dup = strdup(order);
+        for (char *tok = strtok(dup, ","); tok; tok = strtok(NULL, ",")) {
+            while (*tok == ' ') tok++;
+            long div = 1;
+            char *colon = strchr(tok, ':');
+            if (colon) {
+                *colon = '\0';
+                div = atol(colon + 1);
+                if (div < 1) div = 1;
+            }
+            int hit = -1;
+            for (int v = 0; v < NVARIANTS; v++)
+                if (!strcmp(tok, VARIANTS[v].name)) { hit = v; break; }
+            if (hit < 0) {
+                fprintf(stderr, "unknown variant '%s'. known:", tok);
+                for (int v = 0; v < NVARIANTS; v++) fprintf(stderr, " %s", VARIANTS[v].name);
+                fprintf(stderr, "\n");
+                free(dup); return 2;
+            }
+            int dupd = 0;
+            for (int k = 0; k < g_nvorder; k++) if (g_vorder[k] == hit) dupd = 1;
+            if (!dupd) { g_vorder[g_nvorder++] = hit; g_vdiv[hit] = (int)div; }
+        }
+        free(dup);
+        if (!g_nvorder) { fprintf(stderr, "--variants listed nothing\n"); return 2; }
+        fprintf(stderr, "variant order:");
+        for (int k = 0; k < g_nvorder; k++) {
+            const int v = g_vorder[k];
+            if (g_vdiv[v] > 1) fprintf(stderr, " %s(items/%d)", VARIANTS[v].name, g_vdiv[v]);
+            else               fprintf(stderr, " %s", VARIANTS[v].name);
+        }
+        fprintf(stderr, "\n");
+    } else {
+        for (int v = 0; v < NVARIANTS; v++) { g_vorder[g_nvorder++] = v; g_vdiv[v] = 1; }
+    }
+    for (int v = 0; v < NVARIANTS; v++) if (g_vdiv[v] < 1) g_vdiv[v] = 1;
+
     if (printSizing) { printf("items=%d min_items=%d\n", items, minItems); return 0; }
 
     g_minItems = minItems;
@@ -479,14 +493,8 @@ int main(int argc, char **argv)
             int div = op->cost * (mod->bits / 256 > 1 ? mod->bits / 256 : 1);
             long n = items / (div > 1 ? div : 1);
             if (n < 64) n = 64;
-            /* The floor exists so a GPU is not left near-idle. Forcing it on the
-             * CPU libraries instead makes a full-width MODEXP take minutes per
-             * repetition, so they keep the cost-scaled count. */
             long dn = n < minItems ? minItems : n;
             if (dn > items) dn = items;
-            /* OpenCL requires the global size to be a whole multiple of the
-             * local size, so trim rather than round up: padding would launch
-             * work-items past the end of the buffers. */
             if (g_localSize > 1 && dn % g_localSize) {
                 long snapped = dn - (dn % g_localSize);
                 if (snapped >= g_localSize) dn = snapped;
@@ -503,31 +511,66 @@ int main(int argc, char **argv)
             }
 
             double *t = malloc(sizeof(double) * (size_t)reps);
+
+            long inner = 1;
+            {
+                double probe = now_s();
+                for (long j = 0; j < n; j++) gmpOp(op->op, O[j], A[j], B[j], p, &gc);
+                probe = now_s() - probe;
+                if (probe > 0 && probe < CPU_TIMING_TARGET_S) {
+                    double want = CPU_TIMING_TARGET_S / probe;
+                    inner = (want > 4096.0) ? 4096 : (long)want + 1;
+                }
+            }
+            g_cpu[m][o].inner = inner;
+
             for (int r = 0; r < reps; r++) {
                 double t0 = now_s();
-                for (long j = 0; j < n; j++) gmpOp(op->op, O[j], A[j], B[j], p, &gc);
-                t[r] = now_s() - t0;
+                for (long k = 0; k < inner; k++)
+                    for (long j = 0; j < n; j++) gmpOp(op->op, O[j], A[j], B[j], p, &gc);
+                t[r] = (now_s() - t0) / (double)inner;
             }
             g_cpu[m][o].gmp1 = minimum(t, reps);
             g_cpu[m][o].items = n;
 
 #ifdef _OPENMP
-            for (int r = 0; r < reps; r++) {
-                double t0 = now_s();
-#pragma omp parallel num_threads(g_env.threads)
-                {
-                    GmpCtx lc; mpz_inits(lc.lim, lc.Rinv, lc.tmp, NULL);
-                    lc.bits = gc.bits;
-                    mpz_set(lc.lim, gc.lim); mpz_set(lc.Rinv, gc.Rinv);
-                    mpz_t lr; mpz_init(lr);
-#pragma omp for schedule(static)
-                    for (long j = 0; j < n; j++) gmpOp(op->op, lr, A[j], B[j], p, &lc);
-                    mpz_clear(lr);
-                    mpz_clears(lc.lim, lc.Rinv, lc.tmp, NULL);
+            {
+                const int nt = g_env.threads > 0 ? g_env.threads : 1;
+                CpuThreadGmp *ts = calloc((size_t)nt, sizeof *ts);
+                for (int i = 0; i < nt; i++) {
+                    mpz_inits(ts[i].gc.lim, ts[i].gc.Rinv, ts[i].gc.tmp, NULL);
+                    ts[i].gc.bits = gc.bits;
+                    mpz_set(ts[i].gc.lim, gc.lim);
+                    mpz_set(ts[i].gc.Rinv, gc.Rinv);
+                    mpz_init(ts[i].r);
                 }
-                t[r] = now_s() - t0;
+#pragma omp parallel num_threads(nt)
+                { ; }
+
+                for (int r = 0; r < reps; r++) {
+                    double t0 = now_s();
+#pragma omp parallel num_threads(nt)
+                    {
+                        CpuThreadGmp *me = &ts[omp_get_thread_num()];
+                        const int nthr = omp_get_num_threads();
+                        const long chunk = (n + nthr - 1) / nthr;
+                        long lo = (long)omp_get_thread_num() * chunk;
+                        long hi = lo + chunk;
+                        if (hi > n) hi = n;
+                        for (long k = 0; k < inner; k++)
+                            for (long j = lo; j < hi; j++)
+                                gmpOp(op->op, me->r, A[j], B[j], p, &me->gc);
+                    }
+                    t[r] = (now_s() - t0) / (double)inner;
+                }
+                g_cpu[m][o].gmpN = minimum(t, reps);
+
+                for (int i = 0; i < nt; i++) {
+                    mpz_clear(ts[i].r);
+                    mpz_clears(ts[i].gc.lim, ts[i].gc.Rinv, ts[i].gc.tmp, NULL);
+                }
+                free(ts);
             }
-            g_cpu[m][o].gmpN = minimum(t, reps);
 #else
             g_cpu[m][o].gmpN = -1;
 #endif
@@ -542,27 +585,55 @@ int main(int argc, char **argv)
                     BN_hex2bn(&bA[j], ha); BN_hex2bn(&bB[j], hb);
                     free(ha); free(hb);
                 }
+#ifdef _OPENMP
+                const int nto = g_env.threads > 0 ? g_env.threads : 1;
+#else
+                const int nto = 1;
+#endif
+                CpuThreadBn *bt = calloc((size_t)nto, sizeof *bt);
+                for (int i = 0; i < nto; i++) {
+                    bt[i].ctx  = BN_CTX_new();
+                    bt[i].r1   = BN_new();
+                    bt[i].r2   = BN_new();
+                    bt[i].mont = BN_MONT_CTX_new();
+                    if (!BN_MONT_CTX_set(bt[i].mont, bp, bt[i].ctx)) {
+                        BN_MONT_CTX_free(bt[i].mont); bt[i].mont = NULL;
+                    }
+                }
+#ifdef _OPENMP
+#pragma omp parallel num_threads(nto)
+                { ; }
+#endif
                 for (int r = 0; r < reps; r++) {
                     double t0 = now_s();
 #ifdef _OPENMP
-#pragma omp parallel num_threads(g_env.threads)
+#pragma omp parallel num_threads(nto)
 #endif
                     {
-                        BN_CTX *c = BN_CTX_new();
-                        BIGNUM *r1 = BN_new(), *r2 = BN_new();
-                        BN_MONT_CTX *lm = BN_MONT_CTX_new();
-                        if (!BN_MONT_CTX_set(lm, bp, c)) { BN_MONT_CTX_free(lm); lm = NULL; }
 #ifdef _OPENMP
-#pragma omp for schedule(static)
+                        CpuThreadBn *me = &bt[omp_get_thread_num()];
+                        const int nthr = omp_get_num_threads();
+                        const long chunk = (n + nthr - 1) / nthr;
+                        long lo = (long)omp_get_thread_num() * chunk;
+                        long hi = lo + chunk;
+                        if (hi > n) hi = n;
+#else
+                        CpuThreadBn *me = &bt[0];
+                        long lo = 0, hi = n;
 #endif
-                        for (long j = 0; j < n; j++)
-                            osslOp(op->op, r1, r2, bA[j], bB[j], bp, blim, lm, c, mod->bits);
-                        if (lm) BN_MONT_CTX_free(lm);
-                        BN_free(r1); BN_free(r2); BN_CTX_free(c);
+                        for (long k = 0; k < inner; k++)
+                            for (long j = lo; j < hi; j++)
+                                osslOp(op->op, me->r1, me->r2, bA[j], bB[j],
+                                       bp, blim, me->mont, me->ctx, mod->bits);
                     }
-                    t[r] = now_s() - t0;
+                    t[r] = (now_s() - t0) / (double)inner;
                 }
                 g_cpu[m][o].ossl = minimum(t, reps);
+                for (int i = 0; i < nto; i++) {
+                    if (bt[i].mont) BN_MONT_CTX_free(bt[i].mont);
+                    BN_free(bt[i].r1); BN_free(bt[i].r2); BN_CTX_free(bt[i].ctx);
+                }
+                free(bt);
                 for (long j = 0; j < n; j++) { BN_free(bA[j]); BN_free(bB[j]); }
                 free(bA); free(bB);
             } else {
@@ -593,7 +664,8 @@ int main(int argc, char **argv)
     fprintf(stderr, "\n=== device %d: %s ===\n", d, g_devs[d].name);
     int devLost = 0;
 
-    for (int v = 0; v < NVARIANTS && !g_interrupted && !devLost; v++) {
+    for (int oi = 0; oi < g_nvorder && !g_interrupted && !devLost; oi++) {
+        const int v = g_vorder[oi];
         const Variant *var = &VARIANTS[v];
         if (only && strcmp(only, var->name)) continue;
 
@@ -646,11 +718,6 @@ int main(int argc, char **argv)
                 const Op *op = &OPS[o];
                 GpuCell *cell = &g_gpu[d][v][m][o];
                 if (op->ext && !var->ext) continue;
-                /* The budget was previously only consulted once per (variant,
-                 * modulus). One cell can run for hours - MODEXP at 2048 bits
-                 * with an 8-bit word size is ~3000 modular multiplications per
-                 * item - so the flag could overrun without bound on exactly the
-                 * rented hardware it exists to protect. */
                 if (budget > 0 && now_s() - t_start > budget) {
                     fprintf(stderr, "budget exhausted, stopping\n");
                     g_interrupted = 1;
@@ -658,7 +725,15 @@ int main(int argc, char **argv)
                 }
                 cell->attempted = 1;
 
-                const long n = g_cpu[m][o].devItems;
+                long n = g_cpu[m][o].devItems;
+                if (g_vdiv[v] > 1) {
+                    n /= g_vdiv[v];
+                    if (n < 64) n = 64;
+                    if (g_localSize > 1 && n % g_localSize) {
+                        long snapped = n - (n % g_localSize);
+                        if (snapped >= g_localSize) n = snapped;
+                    }
+                }
                 if (n <= 0) { cell->attempted = 0; continue; }
                 const int outWords = op->wide ? 2*T : T;
                 cell->items = n;
@@ -743,12 +818,6 @@ int main(int argc, char **argv)
                         if (loadWord(hC, addrOf(var->interleaved, (size_t)j, w, outWords, (size_t)n), var->wbits) !=
                             loadWord(hE, (size_t)j*outWords + w, var->wbits)) { cell->mismatches++; break; }
 
-                /* The verification launch is one launch of exactly the work the
-                 * timed phase repeats, which makes it a free and accurate cost
-                 * estimate: 2 warm-ups plus reps x 2 launches to come. Skipping a
-                 * cell that cannot fit leaves its correctness result intact and
-                 * lets the remaining cells run, which beats spending the whole
-                 * budget on one of them. */
                 t_verify = now_s() - t_verify;
                 if (budget > 0) {
                     double projected = t_verify * (double)(2 + 2*reps);
@@ -762,9 +831,6 @@ int main(int argc, char **argv)
                     }
                 }
 
-                /* The verification launch proved the kernel runs; the timed phase
-                 * can still die under it, and an unchecked clFinish there turns a
-                 * reset device into a plausible-looking time. */
                 cl_int te_err = CL_SUCCESS;
                 for (int r = 0; r < 2 && te_err == CL_SUCCESS; r++) {
                     te_err = clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
@@ -921,12 +987,6 @@ static void writeReport(int items, int reps, double elapsed, int complete)
         fprintf(f, "> **Partial report.** The run was interrupted or hit its time budget.\n"
                    "> Rows that never ran are marked `n/a`.\n\n");
 
-    /* A reader who opens NVIDIA_GeForce_RTX_5090_Report.md reasonably assumes
-     * NVIDIA's OpenCL runtime produced it. On a WSL2 node no vendor ICD exists
-     * and the kernels go through PoCL instead, while the CGBN column stays
-     * native CUDA and the GMP/OpenSSL columns stay native CPU code. The device
-     * table says so in section 1, but by then the tables have been read. Say it
-     * first, where a comparison starts. */
     {
         const char *ver = g_devs[g_primary].clver;
         int thirdParty = (strstr(ver, "PoCL") || strstr(ver, "pocl") ||
@@ -984,7 +1044,8 @@ static void writeReport(int items, int reps, double elapsed, int complete)
     fprintf(f, "- %d timed repetitions, **minimum** reported. Two untimed warm-up launches precede them.\n", reps);
     fprintf(f, "- `kernel` times `clEnqueueNDRangeKernel` + `clFinish` only. `e2e` adds the host->device operand writes and the device->host result read.\n");
     fprintf(f, "- Every OpenCL device runs the same kernels on the same operands, so GPU and CPU-OpenCL columns are directly comparable.\n");
-    fprintf(f, "- CPU library baselines (GMP, OpenSSL) run those same operands, with temporaries preallocated outside the timed region, so the figure is the arithmetic and not marshalling. The generator is reseeded per modulus and operation so every backend sees identical inputs.\n");
+    fprintf(f, "- CPU library baselines (GMP, OpenSSL) run those same operands, with every temporary - including each thread's GMP context, BN_CTX and Montgomery context - allocated outside the timed region, so the figure is the arithmetic and not marshalling. The generator is reseeded per modulus and operation so every backend sees identical inputs.\n");
+    fprintf(f, "- Cost weighting drives the wide cells down to a few hundred items, which is tens of microseconds of work - the same order as the cost of entering an OpenMP region. Each baseline pass is therefore repeated until the timed interval reaches %g ms and the per-pass time is reported; the multi-threaded loop enters one parallel region per interval and partitions the range itself. Without this the multi-threaded GMP figure came out up to 9x slower than the single-threaded one at 2048 bits.\n", CPU_TIMING_TARGET_S * 1000.0);
     fprintf(f, "- OpenSSL rows time the nearest BN primitive, which is not always semantically identical (its Montgomery routine expects Montgomery-domain inputs); they measure comparable work, not identical results. Correctness is judged against GMP only.\n");
     fprintf(f, "- Every device cell is checked word-for-word against GMP before it is timed. A cell that mismatches is reported and excluded from the speedup tables.\n");
     fprintf(f, "- Total wall time %.1f s.\n\n", elapsed);
@@ -1138,11 +1199,6 @@ static void writeReport(int items, int reps, double elapsed, int complete)
                 for (int v = 0; v < NVARIANTS; v++) {
                     const GpuCell *g = &g_gpu[d][v][m][o];
                     if (!g->attempted || !g->built) continue;
-                    /* Verified but never timed - budget-skipped or the device
-                     * died mid-cell. kernel_s is still 0, and 0 seconds turns
-                     * into an infinite ops/s that poisons any max() or median()
-                     * taken over the CSV. The markdown says "over budget" or
-                     * "device lost" in its place. */
                     if (g->timedout || g->lost) continue;
                     const char *fk = "opencl-kernel,%s,%s,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n";
                     const char *fe = "opencl-e2e,%s,%s,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n";

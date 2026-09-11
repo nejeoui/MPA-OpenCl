@@ -28,7 +28,7 @@ static void runBatch(cl_context ctx, cl_command_queue q, cl_kernel kern,
         mpzToWordsAt(a, hA, (size_t)j, T, wbits, var->interleaved, (size_t)items);
         mpzToWordsAt(b, hB, (size_t)j, T, wbits, var->interleaved, (size_t)items);
         reference(op->op, a, b, p, bits, e);
-        mpzToWords(e, hExp, (size_t)j * outWords, outWords, wbits);  /* host side stays packed */
+        mpzToWords(e, hExp, (size_t)j * outWords, outWords, wbits);
     }
     mpzToWords(p, hP, 0, T, wbits);
     {

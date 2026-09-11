@@ -56,8 +56,6 @@ static const char *clErr(cl_int e)
     case CL_MEM_OBJECT_ALLOCATION_FAILURE: return "CL_MEM_OBJECT_ALLOCATION_FAILURE";
     case CL_OUT_OF_RESOURCES:           return "CL_OUT_OF_RESOURCES";
     case CL_OUT_OF_HOST_MEMORY:         return "CL_OUT_OF_HOST_MEMORY";
-    /* The codes a reset or otherwise lost device reports, which a long-running
-     * kernel on a display-serving GPU will eventually produce. */
     case CL_DEVICE_NOT_AVAILABLE:       return "CL_DEVICE_NOT_AVAILABLE";
     case CL_INVALID_COMMAND_QUEUE:      return "CL_INVALID_COMMAND_QUEUE";
     case CL_INVALID_CONTEXT:            return "CL_INVALID_CONTEXT";
@@ -246,15 +244,11 @@ static const Modulus MODULI[] = {
 typedef struct { const char *cl; const char *name; int wbits; const char *flags;
                  int ext; int interleaved; } Variant;
 
-/* Where item `it`'s word `w` lives. The optimized kernel's MPA_INTERLEAVED
- * layout strides by the work-item count so neighbouring threads touch
- * neighbouring addresses; the default packs each item's words together. */
 static size_t addrOf(int interleaved, size_t it, int w, int nwords, size_t items)
 {
     return interleaved ? (size_t)w * items + it : it * (size_t)nwords + (size_t)w;
 }
 
-/* mpzToWords with a stride, for the interleaved layout. */
 static void mpzToWordsAt(const mpz_t z, void *buf, size_t it, int nwords, int wbits,
                          int interleaved, size_t items)
 {
