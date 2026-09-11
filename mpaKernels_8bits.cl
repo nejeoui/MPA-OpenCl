@@ -327,51 +327,51 @@ int compareResultPrivPrime(__private unsigned char resultPrivate[],__private uns
 
 }
 
-inline xword xaddc(xword a, xword b, xword cin, xword *cout)
+static inline xword xaddc(xword a, xword b, xword cin, xword *cout)
 {
     const uint s = (uint)a + (uint)b + (uint)cin;
     *cout = (xword)(s >> XW);
     return (xword)(s & XWMASK);
 }
 
-inline xword xsubb(xword a, xword b, xword bin, xword *bout)
+static inline xword xsubb(xword a, xword b, xword bin, xword *bout)
 {
     const int d = (int)a - (int)b - (int)bin;
     *bout = (xword)(d < 0);
     return (xword)((uint)d & XWMASK);
 }
 
-inline void xmac(xword a, xword b, xword c, xword d, xword *hi, xword *lo)
+static inline void xmac(xword a, xword b, xword c, xword d, xword *hi, xword *lo)
 {
     const uint p = (uint)a * (uint)b + (uint)c + (uint)d;
     *lo = (xword)(p & XWMASK);
     *hi = (xword)(p >> XW);
 }
 
-inline void copyN(xword *dst, const xword *src)
+static inline void copyN(xword *dst, const xword *src)
 {
     for (int i = 0; i < XT; i++) dst[i] = src[i];
 }
 
-inline void zeroN(xword *a)
+static inline void zeroN(xword *a)
 {
     for (int i = 0; i < XT; i++) a[i] = 0;
 }
 
-inline void oneN(xword *a)
+static inline void oneN(xword *a)
 {
     zeroN(a);
     a[XT - 1] = 1;
 }
 
-inline int isZeroN(const xword *a)
+static inline int isZeroN(const xword *a)
 {
     xword acc = 0;
     for (int i = 0; i < XT; i++) acc |= a[i];
     return acc == 0;
 }
 
-inline int cmpN(const xword *a, const xword *b)
+static inline int cmpN(const xword *a, const xword *b)
 {
     for (int i = 0; i < XT; i++) {
         if (a[i] > b[i]) return  1;
@@ -380,21 +380,21 @@ inline int cmpN(const xword *a, const xword *b)
     return 0;
 }
 
-inline xword addN(xword *r, const xword *a, const xword *b)
+static inline xword addN(xword *r, const xword *a, const xword *b)
 {
     xword carry = 0;
     for (int i = XT - 1; i >= 0; i--) r[i] = xaddc(a[i], b[i], carry, &carry);
     return carry;
 }
 
-inline xword subN(xword *r, const xword *a, const xword *b)
+static inline xword subN(xword *r, const xword *a, const xword *b)
 {
     xword borrow = 0;
     for (int i = XT - 1; i >= 0; i--) r[i] = xsubb(a[i], b[i], borrow, &borrow);
     return borrow;
 }
 
-inline xword shl1N(xword *a)
+static inline xword shl1N(xword *a)
 {
     xword carry = 0;
     for (int i = XT - 1; i >= 0; i--) {
@@ -405,7 +405,7 @@ inline xword shl1N(xword *a)
     return carry;
 }
 
-inline void shr1N(xword *a)
+static inline void shr1N(xword *a)
 {
     xword carry = 0;
     for (int i = 0; i < XT; i++) {
@@ -415,13 +415,13 @@ inline void shr1N(xword *a)
     }
 }
 
-inline xword bitAtN(const xword *a, int bit)
+static inline xword bitAtN(const xword *a, int bit)
 {
     const int w = XT - 1 - (bit / XW);
     return (xword)(((uint)a[w] >> (bit % XW)) & 1u);
 }
 
-inline int bitLenN(const xword *a)
+static inline int bitLenN(const xword *a)
 {
     for (int i = 0; i < XT; i++) {
         if (a[i]) {
@@ -434,7 +434,7 @@ inline int bitLenN(const xword *a)
     return 0;
 }
 
-inline void mulLowN(xword *r, const xword *a, const xword *b)
+static inline void mulLowN(xword *r, const xword *a, const xword *b)
 {
     xword acc[XT];
     zeroN(acc);
@@ -451,7 +451,7 @@ inline void mulLowN(xword *r, const xword *a, const xword *b)
     copyN(r, acc);
 }
 
-inline void montMulPriv(xword *out, const xword *xbe, const xword *ybe,
+static inline void montMulPriv(xword *out, const xword *xbe, const xword *ybe,
                         const xword *nbe, uint m_prime)
 {
     xword a[XT], b[XT], n[XT], t[XT + 2];
@@ -500,13 +500,13 @@ inline void montMulPriv(xword *out, const xword *xbe, const xword *ybe,
     for (int i = 0; i < XT; i++) out[i] = t[XT - 1 - i];
 }
 
-inline void modDoubleN(xword *r, const xword *p)
+static inline void modDoubleN(xword *r, const xword *p)
 {
     const xword c = shl1N(r);
     if (c || cmpN(r, p) >= 0) { xword tmp[XT]; subN(tmp, r, p); copyN(r, tmp); }
 }
 
-inline void reduceN(xword *r, const xword *a, const xword *p)
+static inline void reduceN(xword *r, const xword *a, const xword *p)
 {
     zeroN(r);
     for (int bit = XW * XT - 1; bit >= 0; bit--) {
@@ -516,7 +516,7 @@ inline void reduceN(xword *r, const xword *a, const xword *p)
     }
 }
 
-inline void divModN(xword *q, xword *r, const xword *a, const xword *b)
+static inline void divModN(xword *q, xword *r, const xword *a, const xword *b)
 {
     zeroN(q);
     zeroN(r);
@@ -534,7 +534,7 @@ inline void divModN(xword *q, xword *r, const xword *a, const xword *b)
     }
 }
 
-inline void toMontN(xword *out, const xword *a, const xword *p)
+static inline void toMontN(xword *out, const xword *a, const xword *p)
 {
     xword acc[XT];
     reduceN(acc, a, p);
@@ -542,7 +542,7 @@ inline void toMontN(xword *out, const xword *a, const xword *p)
     copyN(out, acc);
 }
 
-inline void op_compare(__global const xword *x, __global const xword *y,
+static inline void op_compare(__global const xword *x, __global const xword *y,
                        __global xword *out, size_t g)
 {
     int c = 0;
@@ -556,7 +556,7 @@ inline void op_compare(__global const xword *x, __global const xword *y,
     out[XIDX(g, XT - 1)] = (c < 0) ? (xword)XWMASK : (xword)c;
 }
 
-inline void op_reduce(__global const xword *x, __global xword *out,
+static inline void op_reduce(__global const xword *x, __global xword *out,
                       size_t g, const xword *p)
 {
     xword a[XT], r[XT];
@@ -565,7 +565,7 @@ inline void op_reduce(__global const xword *x, __global xword *out,
     for (int i = 0; i < XT; i++) out[XIDX(g, i)] = r[i];
 }
 
-inline void op_modmul(__global const xword *x, __global const xword *y,
+static inline void op_modmul(__global const xword *x, __global const xword *y,
                       __global xword *out, size_t g, const xword *p, uint m_prime)
 {
     xword a[XT], b[XT], am[XT], rm[XT];
@@ -575,7 +575,7 @@ inline void op_modmul(__global const xword *x, __global const xword *y,
     for (int i = 0; i < XT; i++) out[XIDX(g, i)] = rm[i];
 }
 
-inline void op_modmul_r2(__global const xword *x, __global const xword *y,
+static inline void op_modmul_r2(__global const xword *x, __global const xword *y,
                          __global xword *out, size_t g, const xword *p,
                          __constant const xword *r2g, uint m_prime)
 {
@@ -590,7 +590,7 @@ inline void op_modmul_r2(__global const xword *x, __global const xword *y,
     for (int i = 0; i < XT; i++) out[XIDX(g, i)] = r[i];
 }
 
-inline void op_modexp(__global const xword *x, __global const xword *y,
+static inline void op_modexp(__global const xword *x, __global const xword *y,
                       __global xword *out, size_t g, const xword *p, uint m_prime)
 {
     xword a[XT], e[XT], am[XT], rm[XT], one[XT], r[XT];
@@ -614,7 +614,7 @@ inline void op_modexp(__global const xword *x, __global const xword *y,
     for (int i = 0; i < XT; i++) out[XIDX(g, i)] = r[i];
 }
 
-inline void op_exp(__global const xword *x, __global const xword *y,
+static inline void op_exp(__global const xword *x, __global const xword *y,
                    __global xword *out, size_t g)
 {
     xword a[XT], e[XT], r[XT];
@@ -633,7 +633,7 @@ inline void op_exp(__global const xword *x, __global const xword *y,
     for (int i = 0; i < XT; i++) out[XIDX(g, i)] = r[i];
 }
 
-inline void op_divide(__global const xword *x, __global const xword *y,
+static inline void op_divide(__global const xword *x, __global const xword *y,
                       __global xword *out, size_t g)
 {
     xword a[XT], b[XT], q[XT], r[XT];
@@ -645,7 +645,7 @@ inline void op_divide(__global const xword *x, __global const xword *y,
     }
 }
 
-inline void op_isqrt(__global const xword *x, __global xword *out, size_t g)
+static inline void op_isqrt(__global const xword *x, __global xword *out, size_t g)
 {
     xword a[XT], xc[XT], yc[XT], q[XT], rr[XT];
     for (int i = 0; i < XT; i++) a[i] = x[XIDX(g, i)];

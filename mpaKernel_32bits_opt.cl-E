@@ -50,7 +50,7 @@
 #define IDX(g,i)    IDX_N(g,i,T)
 #define IDX2(g,i)   IDX_N(g,i,2*T)
 
-static inline uint addc(uint a, uint b, uint cin, uint *cout)
+inline uint addc(uint a, uint b, uint cin, uint *cout)
 {
 #if MPA_MULHI
     uint s = a + b;
@@ -66,7 +66,7 @@ static inline uint addc(uint a, uint b, uint cin, uint *cout)
 #endif
 }
 
-static inline uint subb(uint a, uint b, uint bin, uint *bout)
+inline uint subb(uint a, uint b, uint bin, uint *bout)
 {
 #if MPA_MULHI
     uint d = a - b;
@@ -82,7 +82,7 @@ static inline uint subb(uint a, uint b, uint bin, uint *bout)
 #endif
 }
 
-static inline void mac(uint a, uint b, uint c, uint d, uint *hi, uint *lo)
+inline void mac(uint a, uint b, uint c, uint d, uint *hi, uint *lo)
 {
 #if MPA_MULHI
     uint l = a * b;
@@ -97,7 +97,7 @@ static inline void mac(uint a, uint b, uint c, uint d, uint *hi, uint *lo)
 #endif
 }
 
-static inline int cmpT(const uint *a, const uint *b)
+inline int cmpT(const uint *a, const uint *b)
 {
     UNROLL
     for (int i = 0; i < T; i++) {
@@ -107,33 +107,33 @@ static inline int cmpT(const uint *a, const uint *b)
     return 0;
 }
 
-static inline void subInPlace(uint *r, const uint *p)
+inline void subInPlace(uint *r, const uint *p)
 {
     uint borrow = 0;
     UNROLL
     for (int i = T - 1; i >= 0; i--) r[i] = subb(r[i], p[i], borrow, &borrow);
 }
 
-static inline void addInPlace(uint *r, const uint *p)
+inline void addInPlace(uint *r, const uint *p)
 {
     uint carry = 0;
     UNROLL
     for (int i = T - 1; i >= 0; i--) r[i] = addc(r[i], p[i], carry, &carry);
 }
 
-static inline void loadT(uint *dst, __global const uint *src, size_t g)
+inline void loadT(uint *dst, __global const uint *src, size_t g)
 {
     UNROLL
     for (int i = 0; i < T; i++) dst[i] = src[IDX(g, i)];
 }
 
-static inline void storeT(__global uint *dst, const uint *src, size_t g)
+inline void storeT(__global uint *dst, const uint *src, size_t g)
 {
     UNROLL
     for (int i = 0; i < T; i++) dst[IDX(g, i)] = src[i];
 }
 
-static inline void op_add(__global const uint *x, __global const uint *y,
+inline void op_add(__global const uint *x, __global const uint *y,
                    __global uint *out, size_t g)
 {
     uint carry = 0;
@@ -144,7 +144,7 @@ static inline void op_add(__global const uint *x, __global const uint *y,
     }
 }
 
-static inline void op_sub(__global const uint *x, __global const uint *y,
+inline void op_sub(__global const uint *x, __global const uint *y,
                    __global uint *out, size_t g)
 {
     uint borrow = 0;
@@ -155,7 +155,7 @@ static inline void op_sub(__global const uint *x, __global const uint *y,
     }
 }
 
-static inline void op_addmod(__global const uint *x, __global const uint *y,
+inline void op_addmod(__global const uint *x, __global const uint *y,
                       __global uint *out, size_t g, const uint *p)
 {
 #if MPA_REGACC
@@ -192,7 +192,7 @@ static inline void op_addmod(__global const uint *x, __global const uint *y,
 #endif
 }
 
-static inline void op_submod(__global const uint *x, __global const uint *y,
+inline void op_submod(__global const uint *x, __global const uint *y,
                       __global uint *out, size_t g, const uint *p)
 {
 #if MPA_REGACC
@@ -222,7 +222,7 @@ static inline void op_submod(__global const uint *x, __global const uint *y,
 #endif
 }
 
-static inline void op_mul_operand(__global const uint *x, __global const uint *y,
+inline void op_mul_operand(__global const uint *x, __global const uint *y,
                            __global uint *out, size_t g)
 {
 #if MPA_REGACC
@@ -260,7 +260,7 @@ static inline void op_mul_operand(__global const uint *x, __global const uint *y
 #endif
 }
 
-static inline void op_mul_product(__global const uint *x, __global const uint *y,
+inline void op_mul_product(__global const uint *x, __global const uint *y,
                            __global uint *out, size_t g)
 {
 
@@ -304,25 +304,25 @@ static inline void op_mul_product(__global const uint *x, __global const uint *y
 }
 
 
-static inline void copyN(uint *d, const uint *s)
+inline void copyN(uint *d, const uint *s)
 {
     UNROLL
     for (int i = 0; i < T; i++) d[i] = s[i];
 }
 
-static inline void zeroN(uint *a)
+inline void zeroN(uint *a)
 {
     UNROLL
     for (int i = 0; i < T; i++) a[i] = 0;
 }
 
-static inline void oneN(uint *a)
+inline void oneN(uint *a)
 {
     zeroN(a);
     a[T - 1] = 1;
 }
 
-static inline int isZeroN(const uint *a)
+inline int isZeroN(const uint *a)
 {
     uint acc = 0;
     UNROLL
@@ -330,7 +330,7 @@ static inline int isZeroN(const uint *a)
     return acc == 0;
 }
 
-static inline int cmpN(const uint *a, const uint *b)
+inline int cmpN(const uint *a, const uint *b)
 {
     for (int i = 0; i < T; i++) {
         if (a[i] > b[i]) return  1;
@@ -339,7 +339,7 @@ static inline int cmpN(const uint *a, const uint *b)
     return 0;
 }
 
-static inline uint addN(uint *r, const uint *a, const uint *b)
+inline uint addN(uint *r, const uint *a, const uint *b)
 {
     uint carry = 0;
     UNROLL
@@ -347,7 +347,7 @@ static inline uint addN(uint *r, const uint *a, const uint *b)
     return carry;
 }
 
-static inline uint subN(uint *r, const uint *a, const uint *b)
+inline uint subN(uint *r, const uint *a, const uint *b)
 {
     uint borrow = 0;
     UNROLL
@@ -355,7 +355,7 @@ static inline uint subN(uint *r, const uint *a, const uint *b)
     return borrow;
 }
 
-static inline uint shl1N(uint *a)
+inline uint shl1N(uint *a)
 {
     uint carry = 0;
     UNROLL
@@ -367,7 +367,7 @@ static inline uint shl1N(uint *a)
     return carry;
 }
 
-static inline void shr1N(uint *a)
+inline void shr1N(uint *a)
 {
     uint carry = 0;
     UNROLL
@@ -378,13 +378,13 @@ static inline void shr1N(uint *a)
     }
 }
 
-static inline uint bitAtN(const uint *a, int bit)
+inline uint bitAtN(const uint *a, int bit)
 {
     const int w = T - 1 - (bit >> 5);
     return (a[w] >> (bit & 31)) & 1u;
 }
 
-static inline int bitLenN(const uint *a)
+inline int bitLenN(const uint *a)
 {
     for (int i = 0; i < T; i++) {
         if (a[i]) {
@@ -397,7 +397,7 @@ static inline int bitLenN(const uint *a)
     return 0;
 }
 
-static inline void mulLowN(uint *r, const uint *a, const uint *b)
+inline void mulLowN(uint *r, const uint *a, const uint *b)
 {
     uint acc[T];
     zeroN(acc);
@@ -414,7 +414,7 @@ static inline void mulLowN(uint *r, const uint *a, const uint *b)
     copyN(r, acc);
 }
 
-static inline void montMulPriv(uint *out, const uint *xbe, const uint *ybe,
+inline void montMulPriv(uint *out, const uint *xbe, const uint *ybe,
                         const uint *nbe, uint m_prime)
 {
     uint a[T], b[T], n[T], t[T + 2];
@@ -469,13 +469,13 @@ static inline void montMulPriv(uint *out, const uint *xbe, const uint *ybe,
     for (int i = 0; i < T; i++) out[i] = t[T - 1 - i];
 }
 
-static inline void modDoubleN(uint *r, const uint *p)
+inline void modDoubleN(uint *r, const uint *p)
 {
     const uint c = shl1N(r);
     if (c || cmpN(r, p) >= 0) { uint tmp[T]; subN(tmp, r, p); copyN(r, tmp); }
 }
 
-static inline void modAddN(uint *r, const uint *a, const uint *p)
+inline void modAddN(uint *r, const uint *a, const uint *p)
 {
     uint tmp[T];
     const uint c = addN(tmp, r, a);
@@ -483,7 +483,7 @@ static inline void modAddN(uint *r, const uint *a, const uint *p)
     else copyN(r, tmp);
 }
 
-static inline void reduceN(uint *r, const uint *a, const uint *p)
+inline void reduceN(uint *r, const uint *a, const uint *p)
 {
     zeroN(r);
     for (int bit = 32 * T - 1; bit >= 0; bit--) {
@@ -493,7 +493,7 @@ static inline void reduceN(uint *r, const uint *a, const uint *p)
     }
 }
 
-static inline void divModN(uint *q, uint *r, const uint *a, const uint *b)
+inline void divModN(uint *q, uint *r, const uint *a, const uint *b)
 {
     zeroN(q);
     zeroN(r);
@@ -511,7 +511,7 @@ static inline void divModN(uint *q, uint *r, const uint *a, const uint *b)
     }
 }
 
-static inline void toMontN(uint *out, const uint *a, const uint *p)
+inline void toMontN(uint *out, const uint *a, const uint *p)
 {
     uint acc[T];
     reduceN(acc, a, p);
@@ -519,7 +519,7 @@ static inline void toMontN(uint *out, const uint *a, const uint *p)
     copyN(out, acc);
 }
 
-static inline void op_compare(__global const uint *x, __global const uint *y,
+inline void op_compare(__global const uint *x, __global const uint *y,
                        __global uint *out, size_t g)
 {
     int c = 0;
@@ -534,7 +534,7 @@ static inline void op_compare(__global const uint *x, __global const uint *y,
     out[IDX(g, T - 1)] = (c < 0) ? 0xFFFFFFFFu : (uint)c;
 }
 
-static inline void op_reduce(__global const uint *x, __global uint *out,
+inline void op_reduce(__global const uint *x, __global uint *out,
                       size_t g, const uint *p)
 {
     uint a[T], r[T];
@@ -545,7 +545,7 @@ static inline void op_reduce(__global const uint *x, __global uint *out,
     for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
 }
 
-static inline void op_modmul(__global const uint *x, __global const uint *y,
+inline void op_modmul(__global const uint *x, __global const uint *y,
                       __global uint *out, size_t g, const uint *p, uint m_prime)
 {
     uint a[T], b[T], am[T], rm[T], r[T];
@@ -558,7 +558,7 @@ static inline void op_modmul(__global const uint *x, __global const uint *y,
     for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
 }
 
-static inline void op_modmul_r2(__global const uint *x, __global const uint *y,
+inline void op_modmul_r2(__global const uint *x, __global const uint *y,
                          __global uint *out, size_t g, const uint *p,
                          __constant const uint *r2g, uint m_prime)
 {
@@ -575,7 +575,7 @@ static inline void op_modmul_r2(__global const uint *x, __global const uint *y,
     for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
 }
 
-static inline void op_modexp(__global const uint *x, __global const uint *y,
+inline void op_modexp(__global const uint *x, __global const uint *y,
                       __global uint *out, size_t g, const uint *p, uint m_prime)
 {
     uint a[T], e[T], am[T], rm[T], one[T], r[T];
@@ -601,7 +601,7 @@ static inline void op_modexp(__global const uint *x, __global const uint *y,
     for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
 }
 
-static inline void op_exp(__global const uint *x, __global const uint *y,
+inline void op_exp(__global const uint *x, __global const uint *y,
                    __global uint *out, size_t g)
 {
     uint a[T], e[T], r[T];
@@ -622,7 +622,7 @@ static inline void op_exp(__global const uint *x, __global const uint *y,
     for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
 }
 
-static inline void op_divide(__global const uint *x, __global const uint *y,
+inline void op_divide(__global const uint *x, __global const uint *y,
                       __global uint *out, size_t g)
 {
     uint a[T], b[T], q[T], r[T];
@@ -636,7 +636,7 @@ static inline void op_divide(__global const uint *x, __global const uint *y,
     }
 }
 
-static inline void op_isqrt(__global const uint *x, __global uint *out, size_t g)
+inline void op_isqrt(__global const uint *x, __global uint *out, size_t g)
 {
     uint a[T], xc[T], yc[T], q[T], rr[T];
     UNROLL
@@ -665,7 +665,7 @@ static inline void op_isqrt(__global const uint *x, __global uint *out, size_t g
     for (int i = 0; i < T; i++) out[IDX(g, i)] = xc[i];
 }
 
-static inline void op_montgomery(__global const uint *x, __global const uint *y,
+inline void op_montgomery(__global const uint *x, __global const uint *y,
                           __global uint *out, size_t g,
                           const uint *pbe, uint m_prime)
 {
