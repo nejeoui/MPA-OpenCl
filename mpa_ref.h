@@ -56,6 +56,13 @@ static const char *clErr(cl_int e)
     case CL_MEM_OBJECT_ALLOCATION_FAILURE: return "CL_MEM_OBJECT_ALLOCATION_FAILURE";
     case CL_OUT_OF_RESOURCES:           return "CL_OUT_OF_RESOURCES";
     case CL_OUT_OF_HOST_MEMORY:         return "CL_OUT_OF_HOST_MEMORY";
+    /* The codes a reset or otherwise lost device reports, which a long-running
+     * kernel on a display-serving GPU will eventually produce. */
+    case CL_DEVICE_NOT_AVAILABLE:       return "CL_DEVICE_NOT_AVAILABLE";
+    case CL_INVALID_COMMAND_QUEUE:      return "CL_INVALID_COMMAND_QUEUE";
+    case CL_INVALID_CONTEXT:            return "CL_INVALID_CONTEXT";
+    case CL_INVALID_GLOBAL_WORK_SIZE:   return "CL_INVALID_GLOBAL_WORK_SIZE";
+    case CL_INVALID_WORK_ITEM_SIZE:     return "CL_INVALID_WORK_ITEM_SIZE";
     default:                            return "CL error";
     }
 }

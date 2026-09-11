@@ -31,7 +31,7 @@ typedef struct {
 } CpuRow;
 
 typedef struct {
-    int    attempted, built, timedout;
+    int    attempted, built, timedout, lost;
     long   items, mismatches;
     double kernel_s, e2e_s;
 } GpuCell;
@@ -75,6 +75,26 @@ static int     g_ncgbn = 0;
 static Env     g_env;
 static char    g_reportPath[512], g_csvPath[512];
 static volatile sig_atomic_t g_interrupted = 0;
+
+/* Which device died, and where, so the report can say so instead of leaving
+ * the reader to wonder why five variants are missing. */
+static int  g_devLost[MAXDEV];
+static char g_devLostAt[MAXDEV][128];
+
+/* A launch can fail for two very different reasons: this one kernel cannot run
+ * here (too many registers, bad work-group size), or the device is gone - which
+ * on a display-serving GPU means the driver's watchdog reset it out from under
+ * a long kernel. The codes do not separate the two reliably: Intel and NVIDIA
+ * both report CL_OUT_OF_RESOURCES for either. So ask the queue directly with a
+ * trivial transfer; a reset context fails that too, a merely unhappy kernel
+ * does not. Without this check one unlaunchable cell would abandon a device
+ * that is still perfectly usable for every other configuration. */
+static int queueAlive(cl_command_queue q, cl_mem probe, const void *src, size_t bytes)
+{
+    if (clEnqueueWriteBuffer(q, probe, CL_TRUE, 0, bytes, src, 0, NULL, NULL) != CL_SUCCESS)
+        return 0;
+    return clFinish(q) == CL_SUCCESS;
+}
 
 /* A single Ctrl-C asks for a clean stop, but the flag is only read between
  * cells and the process is usually parked in clFinish(), which does not return
@@ -571,15 +591,16 @@ int main(int argc, char **argv)
     cl_command_queue q = clCreateCommandQueue(ctx, dev, 0, &err);
     if (err != CL_SUCCESS) { clReleaseContext(ctx); continue; }
     fprintf(stderr, "\n=== device %d: %s ===\n", d, g_devs[d].name);
+    int devLost = 0;
 
-    for (int v = 0; v < NVARIANTS && !g_interrupted; v++) {
+    for (int v = 0; v < NVARIANTS && !g_interrupted && !devLost; v++) {
         const Variant *var = &VARIANTS[v];
         if (only && strcmp(only, var->name)) continue;
 
         size_t srcLen;
         char *src = readFile(var->cl, &srcLen);
 
-        for (int m = 0; m < NMODULI && !g_interrupted; m++) {
+        for (int m = 0; m < NMODULI && !g_interrupted && !devLost; m++) {
             const Modulus *mod = &MODULI[m];
             const int T = mod->bits / var->wbits;
             const size_t wsz = (size_t)(var->wbits / 8);
@@ -621,7 +642,7 @@ int main(int argc, char **argv)
                 mpz_clears(base, inv, mp, NULL);
             }
 
-            for (int o = 0; o < NOPS && !g_interrupted; o++) {
+            for (int o = 0; o < NOPS && !g_interrupted && !devLost; o++) {
                 const Op *op = &OPS[o];
                 GpuCell *cell = &g_gpu[d][v][m][o];
                 if (op->ext && !var->ext) continue;
@@ -692,9 +713,26 @@ int main(int argc, char **argv)
                 size_t lsz    = (size_t)g_localSize;
                 const size_t *lp = g_localSize > 0 ? &lsz : NULL;
                 double t_verify = now_s();
-                if (clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL) != CL_SUCCESS
-                    || clFinish(q) != CL_SUCCESS) {
-                    fprintf(stderr, "  launch failed %s/%s/%s\n", var->name, mod->name, op->name);
+                cl_int eq = clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
+                cl_int ef = (eq == CL_SUCCESS) ? clFinish(q) : eq;
+                if (eq != CL_SUCCESS || ef != CL_SUCCESS) {
+                    cl_int e = (eq != CL_SUCCESS) ? eq : ef;
+                    fprintf(stderr, "  launch failed %s/%s/%s: %s (%d) at %s\n",
+                            var->name, mod->name, op->name, clErr(e), (int)e,
+                            (eq != CL_SUCCESS) ? "enqueue" : "finish");
+                    if (!queueAlive(q, dO, ob, sizeof ob)) {
+                        devLost = 1;
+                        g_devLost[d] = 1;
+                        snprintf(g_devLostAt[d], sizeof g_devLostAt[d], "%s/%s/%s",
+                                 var->name, modShort(mod), op->name);
+                        fprintf(stderr,
+                            "  device lost - the queue no longer accepts work.\n"
+                            "  A GPU that also drives a display resets itself when a kernel\n"
+                            "  outruns the driver watchdog; this one took %.1fs at the last\n"
+                            "  cell that completed. Check dmesg for a GPU hang, and re-run\n"
+                            "  with a smaller --min-items so each launch stays short.\n"
+                            "  Skipping the rest of device %d.\n", now_s() - t_verify, d);
+                    }
                     goto cleanup;
                 }
                 cell->built = 1;
@@ -724,25 +762,44 @@ int main(int argc, char **argv)
                     }
                 }
 
-                for (int r = 0; r < 2; r++) {
-                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
-                    clFinish(q);
+                /* The verification launch proved the kernel runs; the timed phase
+                 * can still die under it, and an unchecked clFinish there turns a
+                 * reset device into a plausible-looking time. */
+                cl_int te_err = CL_SUCCESS;
+                for (int r = 0; r < 2 && te_err == CL_SUCCESS; r++) {
+                    te_err = clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
+                    if (te_err == CL_SUCCESS) te_err = clFinish(q);
                 }
                 double *tk = malloc(sizeof(double)*(size_t)reps);
                 double *te = malloc(sizeof(double)*(size_t)reps);
-                for (int r = 0; r < reps; r++) {
+                for (int r = 0; r < reps && te_err == CL_SUCCESS; r++) {
                     double t0 = now_s();
-                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
-                    clFinish(q);
+                    te_err = clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
+                    if (te_err == CL_SUCCESS) te_err = clFinish(q);
                     tk[r] = now_s() - t0;
 
                     double t1 = now_s();
                     clEnqueueWriteBuffer(q, dA, CL_FALSE, 0, inB, hA, 0, NULL, NULL);
                     clEnqueueWriteBuffer(q, dB, CL_FALSE, 0, inB, hB, 0, NULL, NULL);
-                    clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
+                    if (te_err == CL_SUCCESS)
+                        te_err = clEnqueueNDRangeKernel(q, kern, 1, NULL, &global, lp, 0, NULL, NULL);
                     clEnqueueReadBuffer(q, dC, CL_TRUE, 0, outB, hC, 0, NULL, NULL);
-                    clFinish(q);
+                    if (te_err == CL_SUCCESS) te_err = clFinish(q);
                     te[r] = now_s() - t1;
+                }
+                if (te_err != CL_SUCCESS) {
+                    free(tk); free(te);
+                    cell->lost = 1;
+                    fprintf(stderr, "  timing failed %s/%s/%s: %s (%d)\n",
+                            var->name, mod->name, op->name, clErr(te_err), (int)te_err);
+                    if (!queueAlive(q, dO, ob, sizeof ob)) {
+                        devLost = 1;
+                        g_devLost[d] = 1;
+                        snprintf(g_devLostAt[d], sizeof g_devLostAt[d], "%s/%s/%s",
+                                 var->name, modShort(mod), op->name);
+                        fprintf(stderr, "  device lost while timing; skipping the rest of device %d.\n", d);
+                    }
+                    goto cleanup;
                 }
                 cell->kernel_s = minimum(tk, reps);
                 cell->e2e_s    = minimum(te, reps);
@@ -933,7 +990,7 @@ static void writeReport(int items, int reps, double elapsed, int complete)
     fprintf(f, "- Total wall time %.1f s.\n\n", elapsed);
 
     fprintf(f, "## 3. Correctness\n\n");
-    fprintf(f, "| Device | Kernel | Configs run | Passed | Mismatched | Build/launch failed |\n|---|---|---|---|---|---|\n");
+    fprintf(f, "| Device | Kernel | Configs run | Passed | Mismatched | Launch failed |\n|---|---|---|---|---|---|\n");
     long gtot = 0, gbad = 0;
     for (int d = 0; d < g_ndev; d++)
         for (int v = 0; v < NVARIANTS; v++) {
@@ -954,6 +1011,15 @@ static void writeReport(int items, int reps, double elapsed, int complete)
         }
     fprintf(f, "\n**%s** - %ld configurations, %ld problems.\n\n",
             gbad ? "FAILURES PRESENT" : "All configurations correct", gtot, gbad);
+    for (int d = 0; d < g_ndev; d++)
+        if (g_devLost[d])
+            fprintf(f, "> **Device %d was lost during `%s` and the run moved on to the next"
+                       " device.** Configurations after that point were never attempted, so"
+                       " they are absent from this table rather than counted as failures. A"
+                       " GPU that also drives a display resets itself when a kernel outruns"
+                       " the driver watchdog; re-run with a smaller `--min-items`, or start"
+                       " from a `w32` variant, so that no single launch runs long enough to"
+                       " be killed.\n\n", d, g_devLostAt[d]);
 
     fprintf(f, "## 4. Throughput per device\n\n");
     fprintf(f, "Operations per second, higher is better. Kernel-only timings.\n\n");
@@ -974,8 +1040,9 @@ static void writeReport(int items, int reps, double elapsed, int complete)
                 for (int v = 0; v < NVARIANTS; v++) {
                     const GpuCell *c = &g_gpu[d][v][m][o];
                     if (!c->attempted)      fprintf(f, " - |");
-                    else if (!c->built)     fprintf(f, " build failed |");
+                    else if (!c->built)     fprintf(f, " launch failed |");
                     else if (c->mismatches) fprintf(f, " **WRONG** |");
+                    else if (c->lost)       fprintf(f, " device lost |");
                     else if (c->timedout)   fprintf(f, " over budget |");
                     else { rate(b, sizeof b, c->kernel_s, c->items); fprintf(f, " %s |", b); }
                 }
@@ -1071,6 +1138,12 @@ static void writeReport(int items, int reps, double elapsed, int complete)
                 for (int v = 0; v < NVARIANTS; v++) {
                     const GpuCell *g = &g_gpu[d][v][m][o];
                     if (!g->attempted || !g->built) continue;
+                    /* Verified but never timed - budget-skipped or the device
+                     * died mid-cell. kernel_s is still 0, and 0 seconds turns
+                     * into an infinite ops/s that poisons any max() or median()
+                     * taken over the CSV. The markdown says "over budget" or
+                     * "device lost" in its place. */
+                    if (g->timedout || g->lost) continue;
                     const char *fk = "opencl-kernel,%s,%s,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n";
                     const char *fe = "opencl-e2e,%s,%s,%s,%s,%d,%s,%ld,%.9f,%.3f,%ld\n";
                     fprintf(f, fk, g_devs[d].name, devClass(&g_devs[d]), VARIANTS[v].name,
