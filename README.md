@@ -236,23 +236,95 @@ fixable: a container that was not given the device — anything backed by WSL2,
 for instance — cannot run ROCm OpenCL at all, whatever `rocm-smi` reports
 elsewhere. Check this before installing anything.
 
-If `rocm-smi` works but `clinfo` lists no AMD platform, the ICD registration is
-missing rather than the driver:
+### 2. Install ROCm and its OpenCL runtime
+
+If `clinfo` lists only one platform and one CPU device, the card is not missing
+a driver so much as a *runtime*: most AMD images ship HIP and PyTorch but not
+the OpenCL runtime, and the ICD loader can only see what is registered in
+`/etc/OpenCL/vendors/`.
+
+First, GPU compute access without root requires two group memberships:
+
+```sh
+sudo usermod -aG render $USER
+sudo usermod -aG video  $USER
+```
+
+Then add AMD's repository. Install the signing key:
+
+```sh
+sudo mkdir --parents --mode=0755 /etc/apt/keyrings
+wget https://repo.radeon.com/rocm/rocm.gpg.key -O - \
+    | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+```
+
+Add the repository for your release — `noble` for Ubuntu 24.04, `jammy` for
+22.04 — then pin it so ROCm's packages win over the distribution's:
+
+```sh
+# Ubuntu 24.04 (Noble Numbat)
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] \
+https://repo.radeon.com/rocm/apt/6.4.2 noble main" \
+    | sudo tee /etc/apt/sources.list.d/rocm.list
+
+# Ubuntu 22.04 (Jammy Jellyfish)
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] \
+https://repo.radeon.com/rocm/apt/6.4.2 jammy main" \
+    | sudo tee /etc/apt/sources.list.d/rocm.list
+
+echo -e 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600' \
+    | sudo tee /etc/apt/preferences.d/rocm-pin-600
+sudo apt update
+```
+
+`6.4.2` is a pinned version, not a moving target; check
+[repo.radeon.com/rocm/apt](https://repo.radeon.com/rocm/apt/) for what is
+current before copying it.
+
+Now install. The minimal runtime is enough to build and run everything in this
+repository:
+
+```sh
+sudo apt install rocm-opencl-runtime clinfo
+```
+
+Install the full stack instead if you also want the ROCm tools, HIP, or
+PyTorch on the same machine:
+
+```sh
+sudo apt install rocm rocm-opencl-sdk clinfo
+```
+
+Reboot to pick up the group changes and load the kernel modules, then verify:
+
+```sh
+sudo reboot
+rocminfo     # your GPU should appear under "HSA Agents"
+clinfo       # should list "AMD Accelerated Parallel Processing" and the device
+```
+
+Inside a container you cannot reboot and do not need to: the `amdgpu` and
+`kfd` modules belong to the host kernel, so start a new login shell (or
+`newgrp render`) for the group changes and re-run the two verification
+commands.
+
+If `rocminfo` now lists the GPU but `clinfo` still shows no AMD platform, the
+registration file is missing. Write it with the **absolute** path, since
+`/opt/rocm/lib` is usually not on the `ldconfig` search path:
 
 ```sh
 sudo mkdir -p /etc/OpenCL/vendors
-echo libamdocl64.so | sudo tee /etc/OpenCL/vendors/amdocl64.icd
+echo /opt/rocm/lib/libamdocl64.so | sudo tee /etc/OpenCL/vendors/amdocl64.icd
 ```
 
-Two further conditions catch people out. A consumer card whose `gfx` target
-ROCm does not officially support needs the nearest supported one exported —
-`export HSA_OVERRIDE_GFX_VERSION=10.3.0` for gfx1031, for example — and a
-non-root user must be in the `video` and `render` groups.
+And if the AMD platform appears but reports zero devices, the card's `gfx`
+target is one ROCm does not officially support; export the nearest one that is,
+for example `export HSA_OVERRIDE_GFX_VERSION=10.3.0` for a gfx1031 part.
 
-### 2. Build
+### 3. Build
 
 ```sh
-sudo apt install ocl-icd-opencl-dev libgmp-dev libssl-dev clinfo
+sudo apt install ocl-icd-opencl-dev libgmp-dev libssl-dev
 make
 ```
 
@@ -260,7 +332,7 @@ There is no AMD-specific build step; the Makefile selects `-lOpenCL` on Linux.
 Skip `make cgbn`: CGBN is CUDA-only, so the CGBN columns of the report read
 `n/a` by design on any AMD device.
 
-### 3. Correctness before timings
+### 4. Correctness before timings
 
 ```sh
 ./mpa_test --items 512 2>&1 | tee mpa_test_amd.log
@@ -271,7 +343,7 @@ size and checks every output word against GMP, so it is what tells you whether
 a different vendor's compiler agrees with the reference — a question no timing
 answers. Keep the log.
 
-### 4. Size the run before committing to it
+### 5. Size the run before committing to it
 
 ```sh
 ./GPU_Host --devices gpu --print-sizing
@@ -284,7 +356,7 @@ wide `MODEXP` cell at 8-bit words can consume most of an hour on its own.
 `--print-sizing` shows the choice and exits, so look at the number first and
 override it if it is larger than the time you have.
 
-### 5. The sweep
+### 6. The sweep
 
 ```sh
 ./GPU_Host --devices gpu --min-items 20000 --budget 10800 --reps 5 2>&1 | tee sweep.log
@@ -310,7 +382,7 @@ cp <Device>_Report.csv <Device>_w32-il64.csv
 `w32-il64` is the variant to pick if you only run one: the interleaved layout
 wins the majority of cells on every device measured so far.
 
-### 6. What you get
+### 7. What you get
 
 `<Device>_Report.md` and `<Device>_Report.csv`, rewritten after each variant, so
 an interrupted run keeps everything already measured. A first Ctrl-C stops after
