@@ -39,4 +39,4 @@ jobs:
         run: ./mpa_test --items 64
 
       - name: Montgomery reachability property
-        run: python3 reach_check.py
+        run: python3 src/reach_check.py

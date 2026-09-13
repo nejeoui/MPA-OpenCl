@@ -12,6 +12,8 @@
 #else
 #include <CL/cl.h>
 #endif
+
+#include "mpa_paths.h"
 #define COMPARE 0
 #define ADD 1
 #define SUBTRACT 2
@@ -21,14 +23,15 @@
 #define MULTIPLYPRODUCTSCANNING 6
 #define MONTGOMERYMULTIPLICATION 7
 #define ARITHMETICS 8
+
 #define MAX_SOURCE_SIZE (0x100000)
-typedef unsigned int WORDT;
+typedef unsigned char WORDT;
 #define  END_COLOR   "\x1b[0m"
 #define  BLUE_TERMINAL    "\x1b[34m"
 #define  RED_TERMINAL     "\x1b[31m"
 #define  GREEN_TERMINAL   "\x1b[32m"
 
-int compareArray(unsigned int*  a,unsigned int*  b,const int SIZE,const int WORDLINGTH) {
+int compareArray(unsigned char*  a,unsigned char*  b,const int SIZE,const int WORDLINGTH) {
     int diff=WORDLINGTH-SIZE;
 for (int i = 0; i < SIZE; i++){
 if(a[i+diff]>b[i]) {
@@ -40,12 +43,18 @@ if(a[i+diff]<b[i]) {
 return 0;
 }
 char ansi[]= "\x1b[32m";
-void printArray(unsigned int*  bytes,const int SIZE,const size_t ID) {
-  printf("[\n");
-   for (int i = 0; i < SIZE-1; i++){
-     printf("%u,",bytes[ID*SIZE+i]);
+void printArray(unsigned char*  bytes,const int SIZE,const size_t ID) {
+
+        char charAti[5];
+        sprintf(charAti,"[%3ld", bytes[ID*SIZE]);
+        printf("%s",charAti );
+           for (int i = 1; i < SIZE; i++){
+
+            sprintf(charAti,",%3ld", bytes[i+ID*SIZE]);
+            printf("%s",charAti );
      }
-     printf("%u]\n",bytes[ID*SIZE+SIZE-1]);
+
+        printf("]\n" );
 
     }
 
@@ -279,7 +288,7 @@ unsigned long long int iterations;
        unsigned long MPRIME;
 
     WORDT* PRIME;
-    PRIME= (WORDT*)malloc(WORDLENGTH*sizeof(WORDT));
+    PRIME= (WORDT*)calloc(2*WORDLENGTH, sizeof(WORDT));
     if (!PRIME) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
      mpz_t bigPrime;
      mpz_init(bigPrime);
@@ -324,14 +333,21 @@ unsigned long long int iterations;
     }
     mpaToWords(bigPrime, PRIME, WORDLENGTH, WORDSIZE);
     MPRIME = mpaMPrime(bigPrime, WORDSIZE);
+    {
+        mpz_t r2;
+        mpz_init(r2);
+        mpz_ui_pow_ui(r2, 2, (unsigned long)(2 * BITSLENGTH));
+        mpz_mod(r2, r2, bigPrime);
+        mpaToWords(r2, PRIME + WORDLENGTH, WORDLENGTH, WORDSIZE);
+        mpz_clear(r2);
+    }
     }
 
     struct timespec tstart={0,0}, tend_init={0,0} , tend_createContext={0,0},
     tend_loadTomemory={0,0},tend_BuildProgram={0,0}, tend_createKernel={0,0}, tend_exec={0,0}, tend_redResults={0,0}, tend_test={0,0};
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    cl_platform_id* platform_id = NULL;
-    platform_id=(cl_platform_id*) malloc(sizeof(cl_platform_id) * 4);
+    cl_platform_id platform_id = NULL;
     cl_device_id device_id = NULL;
     cl_context context = NULL;
     cl_command_queue command_queue = NULL;
@@ -350,23 +366,23 @@ unsigned long long int iterations;
    const size_t global[]={K/WORDLENGTH};
    const size_t *local = NULL;
     int i, j;
-    unsigned int* A;
-    unsigned int* B;
-    unsigned int* C;
+    unsigned char* A;
+    unsigned char* B;
+    unsigned char* C;
     int* OPERATOR_WORDSIZE_BITSLENGHT_MPRIME;
 
-    A = (unsigned int*)malloc(K*sizeof(unsigned int));
-    B = (unsigned int*)malloc(K*sizeof(unsigned int));
-    if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned int*)malloc(2*K*sizeof(unsigned int));
-    else C = (unsigned int*)malloc(K*sizeof(unsigned int));
+    A = (unsigned char*)malloc(K*sizeof(unsigned char));
+    B = (unsigned char*)malloc(K*sizeof(unsigned char));
+    if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned char*)malloc(2*K*sizeof(unsigned char));
+    else C = (unsigned char*)malloc(K*sizeof(unsigned char));
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME = (int*)malloc(4*sizeof(int));
 
     FILE *fp;
-    const char fileName[] = "mpaKernel_32bits.cl";
+    const char fileName[] = "mpaKernels_8bits.cl";
     size_t source_size;
      char *source_str;
 
-    fp = fopen(fileName, "rb");
+    fp = fopen(mpaKernelPath(fileName), "rb");
     if (!fp) {
         fprintf(stderr, "Failed to load kernel.\n");
         exit(1);
@@ -375,16 +391,16 @@ unsigned long long int iterations;
     source_size = fread(source_str, 1, MAX_SOURCE_SIZE, fp);
     fclose(fp);
 
-    unsigned int* AR;
-    unsigned int* BR;
+    unsigned char* AR;
+    unsigned char* BR;
 
-    AR = (unsigned int*)malloc(WORDLENGTH*sizeof(unsigned int));
-    BR = (unsigned int*)malloc(WORDLENGTH*sizeof(unsigned int));
+    AR = (unsigned char*)malloc(WORDLENGTH*sizeof(unsigned char));
+    BR = (unsigned char*)malloc(WORDLENGTH*sizeof(unsigned char));
     for (size_t i=0; i < K/ (WORDLENGTH); i++) {
-        if (RAND_bytes((unsigned char *)AR, (int)(4*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
-        if (RAND_bytes((unsigned char *)BR, (int)(4*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
+        if (RAND_bytes((unsigned char *)AR, (int)(WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
+        if (RAND_bytes((unsigned char *)BR, (int)(WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
         if(compareArray(AR,BR,WORDLENGTH,WORDLENGTH)==-1){
-            unsigned int* tempArr;
+            unsigned char* tempArr;
             tempArr=AR;
             AR=BR;
             BR=tempArr;
@@ -407,8 +423,7 @@ unsigned long long int iterations;
     free(BR);
     clock_gettime(CLOCK_MONOTONIC, &tend_init);
 
-    ret = clGetPlatformIDs(4, platform_id, &ret_num_platforms);
-    mpaPickDevice(&device_id);
+    ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
     mpaPickDevice(&device_id);
 
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
@@ -417,30 +432,30 @@ unsigned long long int iterations;
 
     clock_gettime(CLOCK_MONOTONIC, &tend_createContext);
 
-    Amobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned int), NULL, &ret);
-    Bmobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned int), NULL, &ret);
-     if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned int), NULL, &ret);
-    else Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, K*sizeof(unsigned int), NULL, &ret);
+    Amobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned char), NULL, &ret);
+    Bmobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned char), NULL, &ret);
+     if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned char), NULL, &ret);
+    else Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, K*sizeof(unsigned char), NULL, &ret);
 
     Omobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 4*sizeof(int), NULL, &ret);
-    Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, WORDLENGTH*sizeof(unsigned int), NULL, &ret);
+    Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*WORDLENGTH*sizeof(unsigned char), NULL, &ret);
 
-    ret = clEnqueueWriteBuffer(command_queue, Amobj, CL_TRUE, 0, K*sizeof(unsigned int), A, 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, Bmobj, CL_TRUE, 0, K*sizeof(unsigned int), B, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Amobj, CL_TRUE, 0, K*sizeof(unsigned char), A, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Bmobj, CL_TRUE, 0, K*sizeof(unsigned char), B, 0, NULL, NULL);
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[0]=OPERATOR;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[1]=WORDSIZE;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[2]=BITSLENGTH;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3]=(int)(unsigned int)MPRIME;
 
     ret = clEnqueueWriteBuffer(command_queue, Omobj, CL_TRUE, 0, 4*sizeof(int), OPERATOR_WORDSIZE_BITSLENGHT_MPRIME , 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, WORDLENGTH*sizeof(unsigned int), PRIME, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, 2*WORDLENGTH*sizeof(unsigned char), PRIME, 0, NULL, NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_loadTomemory);
 
     program = clCreateProgramWithSource(context, 1, (const  char **)&source_str, (const size_t *)&source_size, &ret);
     char buildOpts[128];
     snprintf(buildOpts, sizeof(buildOpts), "-I%s -DWORDLENGTH_T=%d",
-             getenv("MPA_KERNEL_DIR") ? getenv("MPA_KERNEL_DIR") : ".", WORDLENGTH);
+             mpaKernelDir(), WORDLENGTH);
     ret = clBuildProgram(program, 1, &device_id, buildOpts, NULL, NULL);
 
     if (ret != CL_SUCCESS) {
@@ -481,8 +496,8 @@ unsigned long long int iterations;
     clFinish(command_queue);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_exec);
-   if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned int), C, 0, NULL, NULL);
-   else ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, K*sizeof(unsigned int), C, 0, NULL, NULL);
+   if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned char), C, 0, NULL, NULL);
+   else ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, K*sizeof(unsigned char), C, 0, NULL, NULL);
     printf("clEnqueueReadBuffer for Cmobj  %s \n",getErrorString(ret));
     clFinish(command_queue);
 
@@ -546,7 +561,7 @@ else { printf(  "Initialization  | CREATE CONTEXT  |  LOAD To MEMORY |Build Prog
     ret = clReleaseContext(context);
 
     free(PRIME);
-    free(platform_id);
+
     free(OPERATOR_WORDSIZE_BITSLENGHT_MPRIME);
     mpz_clear(bigPrime);
     return verified ? 0 : 1;

@@ -28,6 +28,8 @@
 #else
 #include <CL/cl.h>
 #endif
+
+#include "mpa_paths.h"
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -270,7 +272,7 @@ int main(int argc, char **argv)
     cl_context ctx = clCreateContext(NULL, 1, &dev, NULL, NULL, &err); CHECK(err);
     cl_command_queue q = clCreateCommandQueue(ctx, dev, 0, &err); CHECK(err);
 
-    FILE *fp = fopen(kernelFile, "rb");
+    FILE *fp = fopen(mpaKernelPath(kernelFile), "rb");
     if (!fp) { fprintf(stderr, "cannot open %s\n", kernelFile); return 2; }
     char *src = malloc(1 << 20);
     size_t srcLen = fread(src, 1, 1 << 20, fp);

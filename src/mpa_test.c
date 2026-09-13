@@ -173,7 +173,7 @@ int main(int argc, char **argv)
             unsigned long m_prime = mpz_get_ui(mp);
 
             char opts[256];
-            snprintf(opts, sizeof(opts), "-I. -DWORDLENGTH_T=%d %s", T, var->flags);
+            snprintf(opts, sizeof(opts), "-I%s -DWORDLENGTH_T=%d %s", mpaKernelDir(), T, var->flags);
 
             cl_program prog = clCreateProgramWithSource(ctx, 1, (const char **)&src, &srcLen, &err);
             CHECK(err);

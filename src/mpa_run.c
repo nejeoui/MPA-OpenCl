@@ -10,6 +10,8 @@
 #include <CL/cl.h>
 #endif
 
+#include "mpa_paths.h"
+
 #define ADD                      1
 #define SUBTRACT                 2
 #define ADDMOD                   3
@@ -161,7 +163,7 @@ static uint32_t mprime32(uint32_t p0)
 
 static char *read_file(const char *path, size_t *len)
 {
-    FILE *f = fopen(path, "rb");
+    FILE *f = fopen(mpaKernelPath(path), "rb");
     if (!f) { perror(path); exit(EXIT_FAILURE); }
     if (fseek(f, 0, SEEK_END) != 0) die("seek failed");
     long n = ftell(f);
@@ -274,7 +276,7 @@ int main(int argc, char **argv)
         die("MPA_INTERLEAVED changes the buffer layout; this host assumes the "
             "contiguous default");
     char opts[512];
-    snprintf(opts, sizeof opts, "-I. -DWORDLENGTH_T=%d %s", T, extra ? extra : "");
+    snprintf(opts, sizeof opts, "-I%s -DWORDLENGTH_T=%d %s", mpaKernelDir(), T, extra ? extra : "");
 
     cl_program prog = clCreateProgramWithSource(ctx, 1, (const char **)&src,
                                                 &srcLen, &err); CHECK(err);

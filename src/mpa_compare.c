@@ -232,7 +232,7 @@ int main(int argc, char **argv)
     size_t srcLen;
     char *src = readFile("mpaKernel_32bits_opt.cl", &srcLen);
     char opts[256];
-    snprintf(opts, sizeof(opts), "-DWORDLENGTH_T=%d %s", T, clFlags);
+    snprintf(opts, sizeof(opts), "-I%s -DWORDLENGTH_T=%d %s", mpaKernelDir(), T, clFlags);
     cl_program prog = clCreateProgramWithSource(ctx, 1, (const char **)&src, &srcLen, &err);
     CHECK(err);
     if (clBuildProgram(prog, 1, &dev, opts, NULL, NULL) != CL_SUCCESS) {

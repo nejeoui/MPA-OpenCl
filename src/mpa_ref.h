@@ -16,6 +16,8 @@
 #include <CL/cl.h>
 #endif
 
+#include "mpa_paths.h"
+
 #define ADD                      1
 #define SUBTRACT                 2
 #define ADDMOD                   3
@@ -160,8 +162,9 @@ static void pickDevice(cl_platform_id *outPlat, cl_device_id *outDev)
     exit(2);
 }
 
-static char *readFile(const char *path, size_t *len)
+static char *readFile(const char *name, size_t *len)
 {
+    const char *path = mpaKernelPath(name);
     FILE *fp = fopen(path, "rb");
     char *buf;
     if (!fp) { fprintf(stderr, "cannot open %s\n", path); exit(2); }

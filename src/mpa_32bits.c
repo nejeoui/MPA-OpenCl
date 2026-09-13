@@ -12,6 +12,8 @@
 #else
 #include <CL/cl.h>
 #endif
+
+#include "mpa_paths.h"
 #define COMPARE 0
 #define ADD 1
 #define SUBTRACT 2
@@ -22,13 +24,13 @@
 #define MONTGOMERYMULTIPLICATION 7
 #define ARITHMETICS 8
 #define MAX_SOURCE_SIZE (0x100000)
-typedef unsigned short WORDT;
+typedef unsigned int WORDT;
 #define  END_COLOR   "\x1b[0m"
 #define  BLUE_TERMINAL    "\x1b[34m"
 #define  RED_TERMINAL     "\x1b[31m"
 #define  GREEN_TERMINAL   "\x1b[32m"
 
-int compareArray(unsigned short*  a,unsigned short*  b,const int SIZE,const int WORDLINGTH) {
+int compareArray(unsigned int*  a,unsigned int*  b,const int SIZE,const int WORDLINGTH) {
     int diff=WORDLINGTH-SIZE;
 for (int i = 0; i < SIZE; i++){
 if(a[i+diff]>b[i]) {
@@ -40,20 +42,58 @@ if(a[i+diff]<b[i]) {
 return 0;
 }
 char ansi[]= "\x1b[32m";
-void printArray(unsigned short*  bytes,const int SIZE,const size_t ID) {
-
-        char charAti[8];
-        sprintf(charAti,"[%5ld", bytes[ID*SIZE]);
-        printf("%s",charAti );
-           for (int i = 1; i < SIZE; i++){
-
-            sprintf(charAti,",%5ld", bytes[i+ID*SIZE]);
-            printf("%s",charAti );
+void printArray(unsigned int*  bytes,const int SIZE,const size_t ID) {
+  printf("[\n");
+   for (int i = 0; i < SIZE-1; i++){
+     printf("%u,",bytes[ID*SIZE+i]);
      }
-
-        printf("]\n" );
+     printf("%u]\n",bytes[ID*SIZE+SIZE-1]);
 
     }
+
+void printDeviceInfo(cl_device_id device)
+{
+    char queryBuffer[1024];
+    int queryInt;
+    cl_int clError;
+    clError = clGetDeviceInfo(device, CL_DEVICE_NAME,
+                              sizeof(queryBuffer),
+                              &queryBuffer, NULL);
+    printf("CL_DEVICE_NAME: %s\n", queryBuffer);
+    queryBuffer[0] = '\0';
+    clError = clGetDeviceInfo(device, CL_DEVICE_VENDOR,
+                              sizeof(queryBuffer), &queryBuffer,
+                              NULL);
+    printf("CL_DEVICE_VENDOR: %s\n", queryBuffer);
+    queryBuffer[0] = '\0';
+    clError = clGetDeviceInfo(device, CL_DRIVER_VERSION,
+                              sizeof(queryBuffer), &queryBuffer,
+                              NULL);
+    printf("CL_DRIVER_VERSION: %s\n", queryBuffer);
+    queryBuffer[0] = '\0';
+    clError = clGetDeviceInfo(device, CL_DEVICE_VERSION,
+                              sizeof(queryBuffer), &queryBuffer,
+                              NULL);
+    printf("CL_DEVICE_VERSION: %s\n", queryBuffer);
+    queryBuffer[0] = '\0';
+    clError = clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS,
+                              sizeof(int), &queryInt, NULL);
+    printf("CL_DEVICE_MAX_COMPUTE_UNITS: %d\n", queryInt);
+}
+const char *decode(int OPERATOR){
+switch(OPERATOR){
+        case ADD: return "ADD";
+        case ADDMOD: return "ADDMOD";
+        case SUBTRACTMOD: return "SUBTRACTMOD";
+        case SUBTRACT: return "SUBTRACT";
+        case MULTIPLYPRODUCTSCANNING: return "MULTIPLYPRODUCTSCANNING";
+        case MULTIPLYOPERANDSCANNING: return "MULTIPLYOPERANDSCANNING";
+        case MONTGOMERYMULTIPLICATION: return "MONTGOMERYMULTIPLICATION";
+
+    }
+    return "INDEFINED OPERATOR";
+}
+
 const char *getErrorString(cl_int error)
 {
     switch(error){
@@ -125,82 +165,6 @@ const char *getErrorString(cl_int error)
         case -1005: return "CL_D3D10_RESOURCE_NOT_ACQUIRED_KHR";
         default: return "Unknown OpenCL error";
     }
-}
-
-void printDeviceInfo(cl_device_id device)
-{
-    char queryBuffer[1024];
-    int queryInt;
-    size_t querySize_t[3];
-    unsigned int queryUint;
-    cl_int clError;
-    clError = clGetDeviceInfo(device, CL_DEVICE_NAME,
-                              sizeof(queryBuffer),
-                              &queryBuffer, NULL);
-    printf("CL_DEVICE_NAME: %s\n", queryBuffer);
-    queryBuffer[0] = '\0';
-    clError = clGetDeviceInfo(device, CL_DEVICE_VENDOR,
-                              sizeof(queryBuffer), &queryBuffer,
-                              NULL);
-    printf("CL_DEVICE_VENDOR: %s\n", queryBuffer);
-    queryBuffer[0] = '\0';
-    clError = clGetDeviceInfo(device, CL_DRIVER_VERSION,
-                              sizeof(queryBuffer), &queryBuffer,
-                              NULL);
-    printf("CL_DRIVER_VERSION: %s\n", queryBuffer);
-    queryBuffer[0] = '\0';
-    clError = clGetDeviceInfo(device, CL_DEVICE_VERSION,
-                              sizeof(queryBuffer), &queryBuffer,
-                              NULL);
-    printf("CL_DEVICE_VERSION: %s\n", queryBuffer);
-    queryBuffer[0] = '\0';
-    clError = clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS,
-                              sizeof(int), &queryInt, NULL);
-    printf("CL_DEVICE_MAX_COMPUTE_UNITS: %d\n", queryInt);
-
-    clError = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS,
-                              sizeof(int), &queryInt, NULL);
-    printf("CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS: %d\n", queryInt);
-
-    clError = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE,
-                              sizeof(size_t), querySize_t, NULL);
-    printf("CL_DEVICE_MAX_WORK_GROUP_SIZE: %d\n", querySize_t[0]);
-
-    clError = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_SIZES,
-                              3*sizeof(size_t), querySize_t, NULL);
-    printf("CL_DEVICE_MAX_WORK_GROUP_SIZE: {%zu, %zu, %zu}\n", querySize_t[0], querySize_t[1], querySize_t[2]);
-
-}
-
-void printKernelWorkGroupInfo(cl_kernel kernel,cl_device_id device)
-{
-    size_t SIZE[3];
-    int queryInt;
-    cl_int clError;
-
-    clError = clGetKernelWorkGroupInfo(kernel,device, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE,
-                              sizeof(size_t),
-                              SIZE, NULL);
-    printf("CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE : %zu\n", SIZE[0]);
-
-    clError = clGetKernelWorkGroupInfo(kernel,device, CL_KERNEL_WORK_GROUP_SIZE,
-                              sizeof(size_t),
-                              SIZE, NULL);
-    printf("CL_KERNEL_WORK_GROUP_SIZE : %zu\n", SIZE[0]);
-
-}
-const char *decode(int OPERATOR){
-switch(OPERATOR){
-        case ADD: return "ADD";
-        case ADDMOD: return "ADDMOD";
-        case SUBTRACTMOD: return "SUBTRACTMOD";
-        case SUBTRACT: return "SUBTRACT";
-        case MULTIPLYPRODUCTSCANNING: return "MULTIPLYPRODUCTSCANNING";
-        case MULTIPLYOPERANDSCANNING: return "MULTIPLYOPERANDSCANNING";
-        case MONTGOMERYMULTIPLICATION: return "MONTGOMERYMULTIPLICATION";
-
-    }
-    return "INDEFINED OPERATOR";
 }
 
 static void mpaToWords(const mpz_t z, WORDT *buf, int nwords, int wbits)
@@ -317,7 +281,7 @@ unsigned long long int iterations;
        unsigned long MPRIME;
 
     WORDT* PRIME;
-    PRIME= (WORDT*)calloc(2*WORDLENGTH, sizeof(WORDT));
+    PRIME= (WORDT*)malloc(WORDLENGTH*sizeof(WORDT));
     if (!PRIME) { fprintf(stderr, "out of memory\n"); exit(EXIT_FAILURE); }
      mpz_t bigPrime;
      mpz_init(bigPrime);
@@ -362,20 +326,14 @@ unsigned long long int iterations;
     }
     mpaToWords(bigPrime, PRIME, WORDLENGTH, WORDSIZE);
     MPRIME = mpaMPrime(bigPrime, WORDSIZE);
-    {
-        mpz_t r2;
-        mpz_init(r2);
-        mpz_ui_pow_ui(r2, 2, (unsigned long)(2 * BITSLENGTH));
-        mpz_mod(r2, r2, bigPrime);
-        mpaToWords(r2, PRIME + WORDLENGTH, WORDLENGTH, WORDSIZE);
-        mpz_clear(r2);
     }
-    }
+
     struct timespec tstart={0,0}, tend_init={0,0} , tend_createContext={0,0},
     tend_loadTomemory={0,0},tend_BuildProgram={0,0}, tend_createKernel={0,0}, tend_exec={0,0}, tend_redResults={0,0}, tend_test={0,0};
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    cl_platform_id platform_id = NULL;
+    cl_platform_id* platform_id = NULL;
+    platform_id=(cl_platform_id*) malloc(sizeof(cl_platform_id) * 4);
     cl_device_id device_id = NULL;
     cl_context context = NULL;
     cl_command_queue command_queue = NULL;
@@ -394,23 +352,23 @@ unsigned long long int iterations;
    const size_t global[]={K/WORDLENGTH};
    const size_t *local = NULL;
     int i, j;
-    unsigned short* A;
-    unsigned short* B;
-    unsigned short* C;
+    unsigned int* A;
+    unsigned int* B;
+    unsigned int* C;
     int* OPERATOR_WORDSIZE_BITSLENGHT_MPRIME;
 
-    A = (unsigned short*)malloc(K*sizeof(unsigned short));
-    B = (unsigned short*)malloc(K*sizeof(unsigned short));
-    if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned short*)malloc(2*K*sizeof(unsigned short));
-    else C = (unsigned short*)malloc(K*sizeof(unsigned short));
+    A = (unsigned int*)malloc(K*sizeof(unsigned int));
+    B = (unsigned int*)malloc(K*sizeof(unsigned int));
+    if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) C = (unsigned int*)malloc(2*K*sizeof(unsigned int));
+    else C = (unsigned int*)malloc(K*sizeof(unsigned int));
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME = (int*)malloc(4*sizeof(int));
 
     FILE *fp;
-    const char fileName[] = "mpaKernel_16bits.cl";
+    const char fileName[] = "mpaKernel_32bits.cl";
     size_t source_size;
      char *source_str;
 
-    fp = fopen(fileName, "rb");
+    fp = fopen(mpaKernelPath(fileName), "rb");
     if (!fp) {
         fprintf(stderr, "Failed to load kernel.\n");
         exit(1);
@@ -419,16 +377,16 @@ unsigned long long int iterations;
     source_size = fread(source_str, 1, MAX_SOURCE_SIZE, fp);
     fclose(fp);
 
-    unsigned short* AR;
-    unsigned short* BR;
+    unsigned int* AR;
+    unsigned int* BR;
 
-    AR = (unsigned short*)malloc(WORDLENGTH*sizeof(unsigned short));
-    BR = (unsigned short*)malloc(WORDLENGTH*sizeof(unsigned short));
+    AR = (unsigned int*)malloc(WORDLENGTH*sizeof(unsigned int));
+    BR = (unsigned int*)malloc(WORDLENGTH*sizeof(unsigned int));
     for (size_t i=0; i < K/ (WORDLENGTH); i++) {
-        if (RAND_bytes((unsigned char *)AR, (int)(2*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
-        if (RAND_bytes((unsigned char *)BR, (int)(2*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
+        if (RAND_bytes((unsigned char *)AR, (int)(4*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
+        if (RAND_bytes((unsigned char *)BR, (int)(4*WORDLENGTH)) != 1) { fprintf(stderr, "RAND_bytes failed\n"); exit(EXIT_FAILURE); }
         if(compareArray(AR,BR,WORDLENGTH,WORDLENGTH)==-1){
-            unsigned short* tempArr;
+            unsigned int* tempArr;
             tempArr=AR;
             AR=BR;
             BR=tempArr;
@@ -451,11 +409,9 @@ unsigned long long int iterations;
     free(BR);
     clock_gettime(CLOCK_MONOTONIC, &tend_init);
 
-    ret = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
+    ret = clGetPlatformIDs(4, platform_id, &ret_num_platforms);
     mpaPickDevice(&device_id);
     mpaPickDevice(&device_id);
-
-    printDeviceInfo(device_id);
 
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &ret);
 
@@ -463,30 +419,30 @@ unsigned long long int iterations;
 
     clock_gettime(CLOCK_MONOTONIC, &tend_createContext);
 
-    Amobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned short), NULL, &ret);
-    Bmobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned short), NULL, &ret);
-     if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned short), NULL, &ret);
-    else Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, K*sizeof(unsigned short), NULL, &ret);
+    Amobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned int), NULL, &ret);
+    Bmobj = clCreateBuffer(context, CL_MEM_READ_ONLY,  K*sizeof(unsigned int), NULL, &ret);
+     if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING) Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*K*sizeof(unsigned int), NULL, &ret);
+    else Cmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, K*sizeof(unsigned int), NULL, &ret);
 
     Omobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 4*sizeof(int), NULL, &ret);
-    Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, 2*WORDLENGTH*sizeof(unsigned short), NULL, &ret);
+    Pmobj = clCreateBuffer(context, CL_MEM_READ_WRITE, WORDLENGTH*sizeof(unsigned int), NULL, &ret);
 
-    ret = clEnqueueWriteBuffer(command_queue, Amobj, CL_TRUE, 0, K*sizeof(unsigned short), A, 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, Bmobj, CL_TRUE, 0, K*sizeof(unsigned short), B, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Amobj, CL_TRUE, 0, K*sizeof(unsigned int), A, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Bmobj, CL_TRUE, 0, K*sizeof(unsigned int), B, 0, NULL, NULL);
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[0]=OPERATOR;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[1]=WORDSIZE;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[2]=BITSLENGTH;
     OPERATOR_WORDSIZE_BITSLENGHT_MPRIME[3]=(int)(unsigned int)MPRIME;
 
     ret = clEnqueueWriteBuffer(command_queue, Omobj, CL_TRUE, 0, 4*sizeof(int), OPERATOR_WORDSIZE_BITSLENGHT_MPRIME , 0, NULL, NULL);
-    ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, 2*WORDLENGTH*sizeof(unsigned short), PRIME, 0, NULL, NULL);
+    ret = clEnqueueWriteBuffer(command_queue, Pmobj, CL_TRUE, 0, WORDLENGTH*sizeof(unsigned int), PRIME, 0, NULL, NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_loadTomemory);
 
     program = clCreateProgramWithSource(context, 1, (const  char **)&source_str, (const size_t *)&source_size, &ret);
     char buildOpts[128];
     snprintf(buildOpts, sizeof(buildOpts), "-I%s -DWORDLENGTH_T=%d",
-             getenv("MPA_KERNEL_DIR") ? getenv("MPA_KERNEL_DIR") : ".", WORDLENGTH);
+             mpaKernelDir(), WORDLENGTH);
     ret = clBuildProgram(program, 1, &device_id, buildOpts, NULL, NULL);
 
     if (ret != CL_SUCCESS) {
@@ -503,8 +459,6 @@ unsigned long long int iterations;
         printf("Error: Failed to create kernel ! %s\n", getErrorString(ret));
         exit(1);
     }
-
-    printKernelWorkGroupInfo(kernel,device_id);
 
         ret = clSetKernelArg(kernel, 0, sizeof(cl_mem), (void *)&Amobj);
         ret = clSetKernelArg(kernel, 1, sizeof(cl_mem), (void *)&Bmobj);
@@ -529,8 +483,8 @@ unsigned long long int iterations;
     clFinish(command_queue);
 
     clock_gettime(CLOCK_MONOTONIC, &tend_exec);
-   if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned short), C, 0, NULL, NULL);
-   else ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, K*sizeof(unsigned short), C, 0, NULL, NULL);
+   if(OPERATOR==MULTIPLYOPERANDSCANNING||OPERATOR==MULTIPLYPRODUCTSCANNING)  ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, 2*K*sizeof(unsigned int), C, 0, NULL, NULL);
+   else ret = clEnqueueReadBuffer(command_queue, Cmobj, CL_TRUE, 0, K*sizeof(unsigned int), C, 0, NULL, NULL);
     printf("clEnqueueReadBuffer for Cmobj  %s \n",getErrorString(ret));
     clFinish(command_queue);
 
@@ -594,7 +548,7 @@ else { printf(  "Initialization  | CREATE CONTEXT  |  LOAD To MEMORY |Build Prog
     ret = clReleaseContext(context);
 
     free(PRIME);
-
+    free(platform_id);
     free(OPERATOR_WORDSIZE_BITSLENGHT_MPRIME);
     mpz_clear(bigPrime);
     return verified ? 0 : 1;

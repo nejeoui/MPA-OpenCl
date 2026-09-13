@@ -6,7 +6,7 @@
 
 DESCRIPTION:
 
-MPA-OpenCL is a Multiple precision Arithmetic API in OpenCl licensed under the [Apache Software License v2](LICENSE).
+MPA-OpenCL is a Multiple precision Arithmetic API in OpenCl licensed under the [Apache Software License v2](LICENSE.txt).
 The API offer a set of helper functions that can be used to carry usual Arbitrary Precision Arithmetic in every openCL enable device like GPUs, Multi core CPUs, Co-processeurs, FPGA and hand held devices that support OpenCL like for example Android Devices supporting OpenCL.
 The main motivation behind the development of this API come from the lack of such an API in OpenCL, similar API exists for proprietary GPGPU platform like CUDA.
 The API can be used to accelerate applications using multiple precision arithmetics like ECDSA, RSA, Research in physics, Big Data analysis Applications to name a few.
@@ -130,6 +130,25 @@ reads it: `2^(2wT) mod p` by `2wT` modular doublings over word arrays, roughly
 fifteen lines. Every other Montgomery path builds the domain in-kernel, so a
 host that sticks to `MODMUL` and `MODEXP` computes nothing beyond `m'`.
 
+## Repository layout
+
+```
+src/            all source: the OpenCL kernels, the hosts, the GMP reference
+                model and the helper scripts
+Makefile        builds the binaries at the repository root
+LICENSE.txt     Apache Software License v2
+NOTICE
+```
+
+The kernels are read at run time, not compiled in. Each host looks for them in
+the working directory, then `src/`, then `../src/`, so the binaries work from
+the repository root and from inside `src/` alike. `MPA_KERNEL_DIR` overrides the
+search, which is what to set when the binaries are installed elsewhere:
+
+```sh
+MPA_KERNEL_DIR=/path/to/MPA-OpenCl/src /path/to/mpa_test
+```
+
 ## Building and testing
 
 ```sh
@@ -174,7 +193,7 @@ MPA_DEVICE_INDEX=1 ./mpa_test      # second matching device
 RSA-style composite) at three word sizes, with random operands plus directed
 edge cases, comparing every output word against GMP.
 
-The composite modulus is not optional. `python3 reach_check.py` exhaustively
+The composite modulus is not optional. `python3 src/reach_check.py` exhaustively
 evaluates a reference CIOS model over every odd modulus below 64 at five
 `(w, T)` settings and shows that the Montgomery post-condition `A == m` is
 reachable only for composite moduli — so a suite restricted to primes cannot

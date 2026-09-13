@@ -684,7 +684,7 @@ int main(int argc, char **argv)
             }
 
             char opts[512];
-            snprintf(opts, sizeof opts, "-I. -DWORDLENGTH_T=%d %s", T, var->flags);
+            snprintf(opts, sizeof opts, "-I%s -DWORDLENGTH_T=%d %s", mpaKernelDir(), T, var->flags);
 
             cl_program prog = clCreateProgramWithSource(ctx, 1, (const char**)&src, &srcLen, &err);
             if (err != CL_SUCCESS) continue;

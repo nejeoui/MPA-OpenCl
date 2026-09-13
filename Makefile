@@ -16,6 +16,15 @@ CC      ?= cc
 CFLAGS  ?= -O2 -std=c99 -Wall -Wextra -Wno-unused-parameter
 CPPFLAGS += -DCL_TARGET_OPENCL_VERSION=120 -D_POSIX_C_SOURCE=200809L
 
+# All source lives in src/; the binaries are built at the repo root. vpath lets
+# the rules below keep naming sources by their bare filenames.
+SRCDIR  := src
+vpath %.c  $(SRCDIR)
+vpath %.h  $(SRCDIR)
+vpath %.cl $(SRCDIR)
+vpath %.cu $(SRCDIR)
+CPPFLAGS += -I$(SRCDIR)
+
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
   CL_LDLIBS := -framework OpenCL
@@ -98,8 +107,9 @@ ecdsa_bench: ecdsa_bench.c ecdsaKernel.cl
 mpa_compare: mpa_compare.c mpa_ref.h
 	$(CC) $(CFLAGS) $(OMPFLAGS) $(CPPFLAGS) $< -o $@ $(LDFLAGS) $(OMPLIBS) $(CL_LDLIBS) -lgmp -lcrypto
 
-# The kernels are read from the working directory at run time, and their
-# #include of the matching .h is resolved with -I. inside the harness.
+# The kernels are read at run time from src/, which the hosts locate
+# themselves (".", then src/, then ../src/); MPA_KERNEL_DIR overrides. The
+# kernels' #include of the matching .h is resolved with the same directory.
 test: mpa_test
 	./mpa_test $(TESTARGS)
 
