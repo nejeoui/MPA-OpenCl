@@ -64,6 +64,8 @@ static int     g_primary = 0;
 static int     g_vorder[NVARIANTS];
 static int     g_nvorder = 0;
 static int     g_vdiv[NVARIANTS];
+static char    g_cgbnPath[512];
+static int     g_cgbnRejected = 0;
 static int     g_minItems = 64;
 static long    g_localSize = 0;
 static int     g_autoSized = 0;
@@ -327,6 +329,8 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--budget") && i+1 < argc) budget = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--variant")&& i+1 < argc) only   = argv[++i];
         else if (!strcmp(argv[i], "--variants")&& i+1 < argc) order  = argv[++i];
+        else if (!strcmp(argv[i], "--cgbn")    && i+1 < argc)
+            snprintf(g_cgbnPath, sizeof g_cgbnPath, "%s", argv[++i]);
         else if (!strcmp(argv[i], "--devices")&& i+1 < argc) wantDev= argv[++i];
         else if (!strcmp(argv[i], "--verbose")) g_verbose = 1;
         else if (!strcmp(argv[i], "--print-sizing")) printSizing = 1;
@@ -423,7 +427,18 @@ int main(int argc, char **argv)
     }
     for (int v = 0; v < NVARIANTS; v++) if (g_vdiv[v] < 1) g_vdiv[v] = 1;
 
-    if (printSizing) { printf("items=%d min_items=%d\n", items, minItems); return 0; }
+    char safe[256];
+    sanitize(g_devs[g_primary].name, safe, sizeof safe);
+    if (!g_cgbnPath[0])
+        snprintf(g_cgbnPath, sizeof g_cgbnPath, "cgbn_results_%s.tsv", safe);
+    snprintf(g_reportPath, sizeof g_reportPath, "%s_Report.md", safe);
+    snprintf(g_csvPath,    sizeof g_csvPath,    "%s_Report.csv", safe);
+
+    if (printSizing) {
+        printf("items=%d min_items=%d\n", items, minItems);
+        printf("cgbn=%s\n", g_cgbnPath);
+        return 0;
+    }
 
     g_minItems = minItems;
 #ifdef _OPENMP
@@ -431,11 +446,6 @@ int main(int argc, char **argv)
 #else
     g_env.threads = 1;
 #endif
-
-    char safe[256];
-    sanitize(g_devs[g_primary].name, safe, sizeof safe);
-    snprintf(g_reportPath, sizeof g_reportPath, "%s_Report.md", safe);
-    snprintf(g_csvPath,    sizeof g_csvPath,    "%s_Report.csv", safe);
 
     fprintf(stderr, "OpenCL devices under test (%d):\n", g_ndev);
     for (int i = 0; i < g_ndev; i++)
@@ -449,19 +459,51 @@ int main(int argc, char **argv)
     fprintf(stderr, "report  : %s\n\n", g_reportPath);
 
     {
-        FILE *f = fopen("cgbn_results.tsv", "r");
+        FILE *f = fopen(g_cgbnPath, "r");
         if (f) {
             char line[512];
-            while (g_ncgbn < 256 && fgets(line, sizeof line, f)) {
-                if (line[0] == '#' || line[0] == '\n') continue;
+            int rejected = 0;
+            while (fgets(line, sizeof line, f)) {
+                if (!strncmp(line, "<<<<<<<", 7) || !strncmp(line, ">>>>>>>", 7)
+                    || !strncmp(line, "=======", 7)) {
+                    fprintf(stderr, "cgbn    : %s contains unmerged conflict markers"
+                                    " - refusing it; CGBN columns will read n/a\n\n", g_cgbnPath);
+                    rejected = 2;
+                    break;
+                }
+                if (line[0] == '#') {
+                    char *d = strstr(line, "device ");
+                    if (d) {
+                        d += 7;
+                        char want[256];
+                        snprintf(want, sizeof want, "%s", g_devs[g_primary].name);
+                        if (strncmp(d, want, strlen(want))) {
+                            char *comma = strchr(d, ',');
+                            if (comma) *comma = '\0';
+                            fprintf(stderr, "cgbn    : %s was produced on '%s', not '%s'"
+                                            " - refusing it; CGBN columns will read n/a\n\n",
+                                    g_cgbnPath, d, want);
+                            rejected = 1;
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if (line[0] == '\n') continue;
+                if (g_ncgbn >= 256) break;
                 CgbnRow r;
                 if (sscanf(line, "%63s %47s %ld %lf", r.mod, r.op, &r.items, &r.seconds) == 4)
                     g_cgbn[g_ncgbn++] = r;
             }
             fclose(f);
-            fprintf(stderr, "cgbn    : %d rows from cgbn_results.tsv\n\n", g_ncgbn);
+            if (rejected) {
+                g_ncgbn = 0;
+                g_cgbnRejected = rejected;
+            } else {
+                fprintf(stderr, "cgbn    : %d rows from %s\n\n", g_ncgbn, g_cgbnPath);
+            }
         } else {
-            fprintf(stderr, "cgbn    : cgbn_results.tsv absent, CGBN columns will read n/a\n\n");
+            fprintf(stderr, "cgbn    : %s absent, CGBN columns will read n/a\n\n", g_cgbnPath);
         }
     }
 
@@ -1033,7 +1075,14 @@ static void writeReport(int items, int reps, double elapsed, int complete)
     fprintf(f, "| Arch | %s |\n", g_env.arch);
     fprintf(f, "| GMP | %s |\n", gmp_version);
     fprintf(f, "| OpenSSL | %s |\n", OpenSSL_version(OPENSSL_VERSION));
-    fprintf(f, "| CGBN | %s |\n\n", g_ncgbn ? "cgbn_results.tsv loaded" : "not measured");
+    {
+        char cg[640];
+        if (g_ncgbn)            snprintf(cg, sizeof cg, "%d rows from `%s`", g_ncgbn, g_cgbnPath);
+        else if (g_cgbnRejected == 2) snprintf(cg, sizeof cg, "refused: `%s` contains unmerged conflict markers", g_cgbnPath);
+        else if (g_cgbnRejected)     snprintf(cg, sizeof cg, "refused: `%s` was produced on a different device", g_cgbnPath);
+        else                     snprintf(cg, sizeof cg, "not measured (`%s` absent)", g_cgbnPath);
+        fprintf(f, "| CGBN | %s |\n\n", cg);
+    }
 
     fprintf(f, "## 2. Method\n\n");
     if (g_localSize > 1)
@@ -1136,6 +1185,11 @@ static void writeReport(int items, int reps, double elapsed, int complete)
             char r0[32], r1[32], r2[32], r3[32];
             long ci = 0; double cg = cgbnLookup(MODULI[m].name, OPS[o].name, &ci);
             double cgs = (cg > 0 && ci > 0) ? cg * (double)cr->items / (double)ci : -1;
+
+            long gi = (haveG && gd >= 0 && gv >= 0) ? g_gpu[gd][gv][m][o].items : 0;
+            long cli = (haveC && cd >= 0 && cv >= 0) ? g_gpu[cd][cv][m][o].items : 0;
+            if (haveG && gi > 0) gs  = gs  * (double)cr->items / (double)gi;
+            if (haveC && cli > 0) cs2 = cs2 * (double)cr->items / (double)cli;
 
             rate(gr,  sizeof gr,  haveG ? gs  : -1, cr->items);
             rate(cr2, sizeof cr2, haveC ? cs2 : -1, cr->items);

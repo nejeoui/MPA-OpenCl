@@ -14,6 +14,9 @@
 #ifndef MPA_UNROLL
 #define MPA_UNROLL 0
 #endif
+#ifndef MPA_MONTSQR
+#define MPA_MONTSQR 0
+#endif
 #ifndef MPA_INTERLEAVED
 #define MPA_INTERLEAVED 0
 #endif
@@ -483,7 +486,7 @@ static inline void modAddN(uint *r, const uint *a, const uint *p)
     else copyN(r, tmp);
 }
 
-static inline void reduceN(uint *r, const uint *a, const uint *p)
+static inline void reduceSlowN(uint *r, const uint *a, const uint *p)
 {
     zeroN(r);
     for (int bit = 32 * T - 1; bit >= 0; bit--) {
@@ -511,10 +514,215 @@ static inline void divModN(uint *q, uint *r, const uint *a, const uint *b)
     }
 }
 
-static inline void toMontN(uint *out, const uint *a, const uint *p)
+static inline void montMulLE(uint *out, const uint *a, const uint *b,
+                             const uint *n, uint m_prime)
+{
+    uint t[T + 2];
+    UNROLL
+    for (int i = 0; i < T + 2; i++) t[i] = 0;
+
+    for (int i = 0; i < T; i++) {
+        uint C = 0, hi, lo, cc;
+        const uint bi = b[i];
+        UNROLL
+        for (int j = 0; j < T; j++) {
+            mac(a[j], bi, t[j], C, &hi, &lo);
+            t[j] = lo; C = hi;
+        }
+        t[T]     = addc(t[T], C, 0, &cc);
+        t[T + 1] = cc;
+
+        const uint m = t[0] * m_prime;
+        mac(m, n[0], t[0], 0, &hi, &lo);
+        C = hi;
+        UNROLL
+        for (int j = 1; j < T; j++) {
+            mac(m, n[j], t[j], C, &hi, &lo);
+            t[j - 1] = lo; C = hi;
+        }
+        t[T - 1] = addc(t[T], C, 0, &cc);
+        t[T]     = t[T + 1] + cc;
+    }
+
+    int ge = (t[T] != 0);
+    if (!ge) {
+        ge = 1;
+        for (int j = T - 1; j >= 0; j--) {
+            if (t[j] > n[j]) { ge = 1; break; }
+            if (t[j] < n[j]) { ge = 0; break; }
+        }
+    }
+    if (ge) {
+        uint borrow = 0;
+        UNROLL
+        for (int j = 0; j < T; j++) t[j] = subb(t[j], n[j], borrow, &borrow);
+    }
+    UNROLL
+    for (int i = 0; i < T; i++) out[i] = t[i];
+}
+
+#if MPA_MONTSQR
+static inline void montSqrLE(uint *out, const uint *a, const uint *n, uint m_prime)
+{
+    uint t[2 * T + 1];
+    UNROLL
+    for (int i = 0; i < 2 * T + 1; i++) t[i] = 0;
+
+    for (int i = 0; i < T; i++) {
+        uint C = 0, hi, lo;
+        for (int j = i + 1; j < T; j++) {
+            mac(a[i], a[j], t[i + j], C, &hi, &lo);
+            t[i + j] = lo; C = hi;
+        }
+        t[i + T] = C;
+    }
+
+    uint carry = 0;
+    for (int k = 0; k < 2 * T; k++) {
+        const uint hibit = t[k] >> 31;
+        t[k] = (t[k] << 1) | carry;
+        carry = hibit;
+    }
+    t[2 * T] = carry;
+
+    uint D = 0;
+    for (int i = 0; i < T; i++) {
+        uint hi, lo, cc;
+        mac(a[i], a[i], t[2 * i], D, &hi, &lo);
+        t[2 * i] = lo;
+        t[2 * i + 1] = addc(t[2 * i + 1], hi, 0, &cc);
+        D = cc;
+    }
+    { uint cc; t[2 * T] = addc(t[2 * T], D, 0, &cc); }
+
+    for (int i = 0; i < T; i++) {
+        uint hi, lo, cc, C = 0;
+        const uint m = t[i] * m_prime;
+        UNROLL
+        for (int j = 0; j < T; j++) {
+            mac(m, n[j], t[i + j], C, &hi, &lo);
+            t[i + j] = lo; C = hi;
+        }
+        for (int k = i + T; k <= 2 * T && C; k++) {
+            t[k] = addc(t[k], C, 0, &cc);
+            C = cc;
+        }
+    }
+
+    int ge = (t[2 * T] != 0);
+    if (!ge) {
+        ge = 1;
+        for (int j = T - 1; j >= 0; j--) {
+            if (t[T + j] > n[j]) { ge = 1; break; }
+            if (t[T + j] < n[j]) { ge = 0; break; }
+        }
+    }
+    if (ge) {
+        uint borrow = 0;
+        UNROLL
+        for (int j = 0; j < T; j++) t[T + j] = subb(t[T + j], n[j], borrow, &borrow);
+    }
+    UNROLL
+    for (int i = 0; i < T; i++) out[i] = t[T + i];
+}
+#endif
+
+static inline void montReduceLE(uint *out, const uint *x, const uint *n, uint m_prime)
+{
+    uint t[T + 2];
+    UNROLL
+    for (int i = 0; i < T; i++) t[i] = x[i];
+    t[T] = 0; t[T + 1] = 0;
+
+    for (int i = 0; i < T; i++) {
+        uint C, hi, lo, cc;
+        const uint m = t[0] * m_prime;
+        mac(m, n[0], t[0], 0, &hi, &lo);
+        C = hi;
+        UNROLL
+        for (int j = 1; j < T; j++) {
+            mac(m, n[j], t[j], C, &hi, &lo);
+            t[j - 1] = lo; C = hi;
+        }
+        t[T - 1] = addc(t[T], C, 0, &cc);
+        t[T]     = t[T + 1] + cc;
+    }
+
+    int ge = (t[T] != 0);
+    if (!ge) {
+        ge = 1;
+        for (int j = T - 1; j >= 0; j--) {
+            if (t[j] > n[j]) { ge = 1; break; }
+            if (t[j] < n[j]) { ge = 0; break; }
+        }
+    }
+    if (ge) {
+        uint borrow = 0;
+        UNROLL
+        for (int j = 0; j < T; j++) t[j] = subb(t[j], n[j], borrow, &borrow);
+    }
+    UNROLL
+    for (int i = 0; i < T; i++) out[i] = t[i];
+}
+
+static inline void montReduceN(uint *out, const uint *xbe, const uint *nbe, uint m_prime)
+{
+    uint n[T], t[T + 2];
+    UNROLL
+    for (int i = 0; i < T; i++) n[i] = nbe[T - 1 - i];
+    UNROLL
+    for (int i = 0; i < T; i++) t[i] = xbe[T - 1 - i];
+    t[T] = 0; t[T + 1] = 0;
+
+    for (int i = 0; i < T; i++) {
+        uint C, hi, lo, cc;
+        const uint m = t[0] * m_prime;
+        mac(m, n[0], t[0], 0, &hi, &lo);
+        C = hi;
+        UNROLL
+        for (int j = 1; j < T; j++) {
+            mac(m, n[j], t[j], C, &hi, &lo);
+            t[j - 1] = lo; C = hi;
+        }
+        t[T - 1] = addc(t[T], C, 0, &cc);
+        t[T]     = t[T + 1] + cc;
+    }
+
+    int ge = (t[T] != 0);
+    if (!ge) {
+        ge = 1;
+        for (int j = T - 1; j >= 0; j--) {
+            if (t[j] > n[j]) { ge = 1; break; }
+            if (t[j] < n[j]) { ge = 0; break; }
+        }
+    }
+    if (ge) {
+        uint borrow = 0;
+        UNROLL
+        for (int j = 0; j < T; j++) t[j] = subb(t[j], n[j], borrow, &borrow);
+    }
+    UNROLL
+    for (int i = 0; i < T; i++) out[i] = t[T - 1 - i];
+}
+
+static inline void toMontFastN(uint *out, const uint *a, const uint *p,
+                               const uint *r2, uint m_prime)
+{
+    montMulPriv(out, a, r2, p, m_prime);
+}
+
+static inline void reduceFastN(uint *out, const uint *a, const uint *p,
+                               const uint *r2, uint m_prime)
+{
+    uint t[T];
+    montMulPriv(t, a, r2, p, m_prime);
+    montReduceN(out, t, p, m_prime);
+}
+
+static inline void toMontSlowN(uint *out, const uint *a, const uint *p)
 {
     uint acc[T];
-    reduceN(acc, a, p);
+    reduceSlowN(acc, a, p);
     for (int i = 0; i < 32 * T; i++) modDoubleN(acc, p);
     copyN(out, acc);
 }
@@ -535,12 +743,13 @@ static inline void op_compare(__global const uint *x, __global const uint *y,
 }
 
 static inline void op_reduce(__global const uint *x, __global uint *out,
-                      size_t g, const uint *p)
+                      size_t g, const uint *p, __constant const uint *r2g,
+                      uint m_prime)
 {
-    uint a[T], r[T];
+    uint a[T], r2[T], r[T];
     UNROLL
-    for (int i = 0; i < T; i++) a[i] = x[IDX(g, i)];
-    reduceN(r, a, p);
+    for (int i = 0; i < T; i++) { a[i] = x[IDX(g, i)]; r2[i] = r2g[i]; }
+    reduceFastN(r, a, p, r2, m_prime);
     UNROLL
     for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
 }
@@ -551,7 +760,7 @@ static inline void op_modmul(__global const uint *x, __global const uint *y,
     uint a[T], b[T], am[T], rm[T], r[T];
     UNROLL
     for (int i = 0; i < T; i++) { a[i] = x[IDX(g, i)]; b[i] = y[IDX(g, i)]; }
-    toMontN(am, a, p);
+    toMontSlowN(am, a, p);
     montMulPriv(rm, am, b, p, m_prime);
     copyN(r, rm);
     UNROLL
@@ -576,29 +785,40 @@ static inline void op_modmul_r2(__global const uint *x, __global const uint *y,
 }
 
 static inline void op_modexp(__global const uint *x, __global const uint *y,
-                      __global uint *out, size_t g, const uint *p, uint m_prime)
+                      __global uint *out, size_t g, const uint *p,
+                      __constant const uint *r2g, uint m_prime)
 {
-    uint a[T], e[T], am[T], rm[T], one[T], r[T];
+    uint e[T], n[T], a[T], r2[T], am[T], rm[T];
     UNROLL
-    for (int i = 0; i < T; i++) { a[i] = x[IDX(g, i)]; e[i] = y[IDX(g, i)]; }
+    for (int i = 0; i < T; i++) {
+        e[i]  = y[IDX(g, i)];
+        n[i]  = p[T - 1 - i];
+        a[i]  = x[IDX(g, T - 1 - i)];
+        r2[i] = r2g[T - 1 - i];
+    }
 
-    oneN(one);
-    toMontN(am, a, p);
-    toMontN(rm, one, p);
+    montMulLE(am, a, r2, n, m_prime);
+
+    UNROLL
+    for (int i = 0; i < T; i++) a[i] = 0;
+    a[0] = 1;
+    montMulLE(rm, a, r2, n, m_prime);
 
     const int nb = bitLenN(e);
     for (int bit = nb - 1; bit >= 0; bit--) {
         uint t1[T];
-        montMulPriv(t1, rm, rm, p, m_prime);
-        copyN(rm, t1);
-        if (bitAtN(e, bit)) {
-            montMulPriv(t1, rm, am, p, m_prime);
-            copyN(rm, t1);
-        }
+#if MPA_MONTSQR
+        montSqrLE(t1, rm, n, m_prime);
+#else
+        montMulLE(t1, rm, rm, n, m_prime);
+#endif
+        if (bitAtN(e, bit)) montMulLE(rm, t1, am, n, m_prime);
+        else                copyN(rm, t1);
     }
-    montMulPriv(r, rm, one, p, m_prime);
+
+    montReduceLE(a, rm, n, m_prime);
     UNROLL
-    for (int i = 0; i < T; i++) out[IDX(g, i)] = r[i];
+    for (int i = 0; i < T; i++) out[IDX(g, i)] = a[T - 1 - i];
 }
 
 static inline void op_exp(__global const uint *x, __global const uint *y,
@@ -820,14 +1040,16 @@ __kernel void mpaKernel(__global uint *input1, __global uint *input2,
     case COMPARE:
         op_compare(input1, input2, outputBytes, g); break;
     case REDUCE:
-        op_reduce(input1, outputBytes, g, PRIME); break;
+        op_reduce(input1, outputBytes, g, PRIME,
+                  globalPRIME + WORDLENGTH_T, m_prime); break;
     case MODMUL:
         op_modmul(input1, input2, outputBytes, g, PRIME, m_prime); break;
     case MODMUL_R2:
         op_modmul_r2(input1, input2, outputBytes, g, PRIME,
                      globalPRIME + WORDLENGTH_T, m_prime); break;
     case MODEXP:
-        op_modexp(input1, input2, outputBytes, g, PRIME, m_prime); break;
+        op_modexp(input1, input2, outputBytes, g, PRIME,
+                  globalPRIME + WORDLENGTH_T, m_prime); break;
     case EXPONENTIATION:
         op_exp(input1, input2, outputBytes, g); break;
     case DIVIDE:
