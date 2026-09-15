@@ -51,12 +51,19 @@ def analyse(csv_path):
            for o in ('REDUCE','DIVIDE','ISQRT','MODMUL','MODEXP')
            if ('gmp-1t',m,o) in L and ('gmp-nt',m,o) in L
            and L[('gmp-nt',m,o)] < L[('gmp-1t',m,o)]]
-    r['cpu_ok'] = r['cpufix'] and not bad
-    if not r['cpufix']: r['notes'].append('CPU baselines predate the 2026-09-12 timing fix')
-    elif bad:           r['notes'].append(f'{len(bad)} CPU cells where nT < 1T ({r["threads"]} threads)')
+    r['cpu_gone'] = not any(k[0] == 'gmp-nt' for k in L)
+    # a removed column is not a usable one: 'gone' is its own state, never 'ok'
+    r['cpu_ok'] = (not r['cpu_gone']) and r['cpufix'] and not bad
+    if r['cpu_gone']:
+        why = ('predated the 2026-09-12 timing fix' if not r['cpufix']
+               else f'multi-threaded baseline was implausible (nT < 1T, {r["threads"]} threads)')
+        r['notes'].append(f'multi-threaded CPU baseline removed: {why}')
+    elif not r['cpufix']: r['notes'].append('CPU baselines predate the 2026-09-12 timing fix')
+    elif bad:             r['notes'].append(f'{len(bad)} CPU cells where nT < 1T ({r["threads"]} threads)')
 
     # --- CGBN column -------------------------------------------------------
     r['cgbn_ok'] = bool(C)
+    r['cgbn_gone'] = not C
     if not C:
         r['cgbn_ok'] = False; r['notes'].append('no CGBN column')
     else:
@@ -76,13 +83,18 @@ for i, a in enumerate(reports):
                 x['cgbn_ok'] = False
                 x['notes'].append(f'CGBN column identical to {y["name"]} (contaminated)')
 
-print(f"{'report':<32}{'vars':>5}{'MPA':>5}{'CPU':>5}{'CGBN':>6}  notes")
+print(f"{'report':<32}{'vars':>5}{'cells':>7}{'MPA':>5}{'CPU':>5}{'CGBN':>6}  notes")
 for r in sorted(reports, key=lambda r: (-r['variants'], r['name'])):
     y = lambda b: ' ok ' if b else 'BAD '
-    print(f"{r['name']:<32}{r['variants']:>4}/7{y(r['mpa_ok']):>5}{y(r['cpu_ok']):>5}{y(r['cgbn_ok']):>6}  "
+    g = lambda b, gone: '  - ' if gone else y(b)
+    print(f"{r['name']:<32}{r['variants']:>4}/7{r['cells']:>7}{y(r['mpa_ok']):>5}"
+          f"{g(r['cpu_ok'], r.get('cpu_gone')):>5}{g(r['cgbn_ok'], r.get('cgbn_gone')):>6}  "
           + '; '.join(r['notes']))
 
-clean = [r for r in reports if r['mpa_ok'] and r['cpu_ok'] and r['cgbn_ok'] and r['variants'] == 7]
-print(f"\nfully usable (7/7 variants, MPA + CPU + CGBN all valid): "
-      + (', '.join(r['name'] for r in clean) or 'none'))
+valid = [r for r in reports if r['mpa_ok'] and r['cpu_ok'] and r['cgbn_ok']]
+full  = [r for r in valid if r['variants'] == 7]
+print(f"\nevery column valid (MPA + CPU + CGBN): "
+      + (', '.join(r['name'] for r in valid) or 'none'))
+print(f"...of those, with all seven variants: "
+      + (', '.join(r['name'] for r in full) or 'none'))
 print(f"MPA data usable: {sum(1 for r in reports if r['mpa_ok'])}/{len(reports)} reports")

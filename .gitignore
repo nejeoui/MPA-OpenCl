@@ -9,8 +9,8 @@ mpa_16bits
 mpa_32bits
 mpa_run
 GPU_Host
-Apple_M2_Report.csv
-Apple_M2_Report.md
+/Apple_M2_Report.csv
+/Apple_M2_Report.md
 thirdparty/
 moduli.tsv
 *.cl-E

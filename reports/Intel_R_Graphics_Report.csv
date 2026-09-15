@@ -1,0 +1,156 @@
+kind,device,device_type,kernel,modulus,bits,operation,items,seconds,ops_per_sec,mismatches
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,ADD,150000,0.001867299,80329931.212,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,ADD,150000,0.002197517,68258857.773,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,ADD,150000,0.004895016,30643413.639,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,SUBTRACT,150000,0.001189908,126060164.646,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,SUBTRACT,150000,0.001330605,112730674.333,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,SUBTRACT,150000,0.003523177,42575209.798,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,ADDMOD,150000,0.003965175,37829351.678,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,ADDMOD,150000,0.002496101,60093722.379,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,ADDMOD,150000,0.005232690,28665944.342,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,SUBTRACTMOD,150000,0.003340540,44902920.047,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,SUBTRACTMOD,150000,0.002365180,63420120.239,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,SUBTRACTMOD,150000,0.004637359,32345996.926,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,MULTIPLYOPERANDSCANNING,150000,0.001677853,89399965.468,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,MULTIPLYOPERANDSCANNING,150000,0.086669299,1730716.664,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,MULTIPLYOPERANDSCANNING,150000,0.091744623,1634973.202,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,MULTIPLYPRODUCTSCANNING,150000,0.001645496,91157924.493,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,MULTIPLYPRODUCTSCANNING,150000,0.011720365,12798236.232,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,MULTIPLYPRODUCTSCANNING,150000,0.016280518,9213466.058,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,MONTGOMERYMULTIPLICATION,150000,0.014210056,10555904.925,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,MONTGOMERYMULTIPLICATION,150000,0.207819815,721779.105,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,MONTGOMERYMULTIPLICATION,150000,0.212325985,706460.870,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,COMPARE,150000,0.001623210,92409484.771,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,COMPARE,150000,0.001393018,107679872.097,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,COMPARE,150000,0.003373699,44461583.551,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,REDUCE,18750,0.000226362,82831925.113,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,REDUCE,18750,0.041927481,447200.727,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,REDUCE,18750,0.042835182,437724.299,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,MODMUL,9375,0.000455734,20571210.406,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,MODMUL,15000,0.105503903,142174.835,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,MODMUL,15000,0.108323056,138474.675,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,MODEXP,2343,0.014085848,166337.163,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,MODEXP,15000,4.019905329,3731.431,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,MODEXP,15000,4.016454878,3734.637,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,EXPONENTIATION,2343,0.004738916,494416.869,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,EXPONENTIATION,15000,1.042721131,14385.438,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,EXPONENTIATION,15000,1.040436017,14417.033,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,DIVIDE,18750,0.000373193,50242099.308,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,DIVIDE,18750,0.079695606,235270.185,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,DIVIDE,18750,0.081386760,230381.453,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,ISQRT,4687,0.000355214,13194862.928,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,ISQRT,15000,0.568279892,26395.444,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,ISQRT,15000,0.568695017,26376.176,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,secp256k1,256,MODMUL_R2,150000,0.007257648,20667852.763,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,secp256k1,256,MODMUL_R2,150000,0.172555143,869287.333,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,secp256k1,256,MODMUL_R2,150000,0.177123263,846867.867,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,ADD,150000,0.001741165,86149215.978,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,ADD,150000,0.001613969,92938587.326,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,ADD,150000,0.003732105,40191795.360,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,SUBTRACT,150000,0.001140394,131533485.792,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,SUBTRACT,150000,0.001312546,114281709.379,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,SUBTRACT,150000,0.003295551,45515909.231,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,ADDMOD,150000,0.003659673,40987268.467,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,ADDMOD,150000,0.001894259,79186637.877,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,ADDMOD,150000,0.003891942,38541170.410,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,SUBTRACTMOD,150000,0.003336436,44958152.968,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,SUBTRACTMOD,150000,0.002000643,74975895.302,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,SUBTRACTMOD,150000,0.004176840,35912316.389,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,MULTIPLYOPERANDSCANNING,150000,0.001679377,89318837.216,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MULTIPLYOPERANDSCANNING,150000,0.086737682,1729352.186,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MULTIPLYOPERANDSCANNING,150000,0.091664501,1636402.297,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,MULTIPLYPRODUCTSCANNING,150000,0.001677633,89411688.903,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MULTIPLYPRODUCTSCANNING,150000,0.011796345,12715803.101,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MULTIPLYPRODUCTSCANNING,150000,0.016981294,8833249.103,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,MONTGOMERYMULTIPLICATION,150000,0.014099888,10638382.369,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MONTGOMERYMULTIPLICATION,150000,0.206923946,724904.019,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MONTGOMERYMULTIPLICATION,150000,0.211516554,709164.352,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,COMPARE,150000,0.001622329,92459667.530,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,COMPARE,150000,0.001357816,110471520.759,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,COMPARE,150000,0.003233496,46389418.999,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,REDUCE,18750,0.000295707,63407360.270,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,REDUCE,18750,0.041471891,452113.457,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,REDUCE,18750,0.042658752,439534.659,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,MODMUL,9375,0.000445776,21030741.528,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MODMUL,15000,0.105474955,142213.855,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MODMUL,15000,0.106293143,141119.169,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,MODEXP,2343,0.012800728,183036.465,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MODEXP,15000,3.995564952,3754.162,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MODEXP,15000,3.996963127,3752.849,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,EXPONENTIATION,2343,0.004681747,500454.211,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,EXPONENTIATION,15000,1.043506629,14374.609,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,EXPONENTIATION,15000,1.041288446,14405.230,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,DIVIDE,18750,0.000378767,49502728.676,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,DIVIDE,18750,0.079489129,235881.312,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,DIVIDE,18750,0.081068389,231286.205,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,ISQRT,4687,0.000335845,13955841.917,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,ISQRT,15000,0.618439359,24254.601,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,ISQRT,15000,0.616113324,24346.170,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,rsa256(composite),256,MODMUL_R2,150000,0.007211253,20800823.328,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MODMUL_R2,150000,0.172632049,868900.073,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,rsa256(composite),256,MODMUL_R2,150000,0.177097990,846988.721,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,ADD,75000,0.001006837,74490706.819,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,ADD,75000,0.002108537,35569686.793,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,ADD,75000,0.004528048,16563428.720,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,SUBTRACT,75000,0.000817659,91725280.146,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,SUBTRACT,75000,0.002190606,34237101.527,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,SUBTRACT,75000,0.004449190,16857000.866,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,ADDMOD,75000,0.001817114,41274240.774,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,ADDMOD,75000,0.002789791,26883734.543,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,ADDMOD,75000,0.005347280,14025822.534,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,SUBTRACTMOD,75000,0.001762710,42548121.518,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,SUBTRACTMOD,75000,0.003115693,24071691.345,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,SUBTRACTMOD,75000,0.006173785,12148139.289,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,MULTIPLYOPERANDSCANNING,75000,0.001947754,38505889.258,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MULTIPLYOPERANDSCANNING,75000,0.215077540,348711.446,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MULTIPLYOPERANDSCANNING,75000,0.221293950,338915.727,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,MULTIPLYPRODUCTSCANNING,75000,0.001927698,38906509.175,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MULTIPLYPRODUCTSCANNING,75000,0.060773193,1234096.751,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MULTIPLYPRODUCTSCANNING,75000,0.065108983,1151914.783,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,MONTGOMERYMULTIPLICATION,75000,0.016889583,4440606.971,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MONTGOMERYMULTIPLICATION,75000,0.695221048,107879.358,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MONTGOMERYMULTIPLICATION,75000,0.701735393,106877.893,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,COMPARE,75000,0.000996364,75273695.946,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,COMPARE,75000,0.002249706,33337689.270,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,COMPARE,75000,0.004427077,16941200.757,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,REDUCE,9375,0.000163681,57276046.455,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,REDUCE,15000,0.224274968,66882.185,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,REDUCE,15000,0.225625079,66481.971,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,MODMUL,4687,0.001574566,2976693.249,0
+opencl-kernel,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MODMUL,15000,0.654180450,22929.453,0
+opencl-e2e,Intel(R) Graphics,GPU,w8,brainpoolP512r1,512,MODMUL,15000,0.656083596,22862.940,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,MODEXP,1171,0.035326811,33147.628,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,EXPONENTIATION,1171,0.007736259,151365.149,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,DIVIDE,9375,0.000198455,47239927.601,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,ISQRT,2343,0.000188829,12408051.799,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,brainpoolP512r1,512,MODMUL_R2,75000,0.007941602,9443938.387,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,ADD,37500,0.000682007,54984773.083,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,SUBTRACT,37500,0.000762699,49167496.134,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,ADDMOD,37500,0.001301014,28823671.804,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,SUBTRACTMOD,37500,0.001099063,34119973.222,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,MULTIPLYOPERANDSCANNING,37500,0.003486639,10755343.454,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,MULTIPLYPRODUCTSCANNING,37500,0.003457805,10845030.313,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,MONTGOMERYMULTIPLICATION,37500,0.026066808,1438611.126,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,COMPARE,37500,0.000650509,57647165.646,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,REDUCE,4687,0.000063870,73383451.473,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,MODMUL,2343,0.000697398,3359631.201,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,MODEXP,585,0.114802133,5095.724,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,EXPONENTIATION,585,0.014671219,39873.987,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,DIVIDE,4687,0.000115245,40669877.713,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,ISQRT,1171,0.000203666,5749610.045,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p1024,1024,MODMUL_R2,37500,0.011523877,3254113.183,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,ADD,18750,0.000705463,26578289.838,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,SUBTRACT,18750,0.000727703,25766005.867,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,ADDMOD,18750,0.001118619,16761739.327,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,SUBTRACTMOD,18750,0.001052977,17806656.858,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,MULTIPLYOPERANDSCANNING,18750,0.006174844,3036513.949,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,MULTIPLYPRODUCTSCANNING,18750,0.006020020,3114607.595,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,MONTGOMERYMULTIPLICATION,18750,0.045015957,416518.969,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,COMPARE,18750,0.000686233,27323081.621,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,REDUCE,2343,0.000049773,47073721.760,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,MODMUL,1171,0.001223798,956857.261,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,MODEXP,292,0.412227085,708.347,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,EXPONENTIATION,292,0.049928353,5848.380,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,DIVIDE,2343,0.000068355,34276935.357,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,ISQRT,585,0.000344627,1697487.365,0
+library,Intel(R) Core(TM) Ultra 7 265U,host-cpu,gmp-1t,p2048,2048,MODMUL_R2,18750,0.019921510,941193.714,0
