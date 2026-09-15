@@ -1,0 +1,25 @@
+{
+  "title": "MPA-OpenCL: A Differentially Verified Multiple-Precision Arithmetic Library for Heterogeneous Devices",
+  "description": "<p>MPA-OpenCL is a portable multiple-precision arithmetic library written in standard OpenCL C. It provides fifteen fixed-width big-integer operations &mdash; comparison, addition, subtraction, two multiplication algorithms, exponentiation, division, integer square root, reduction, modular addition and subtraction, two modular multiplication routes, Montgomery multiplication and modular exponentiation &mdash; at operand widths from 256 to 2048 bits and machine word sizes of 8, 16 and 32 bits, on any OpenCL 1.2 device.</p><p>Its distinguishing feature is verification. Every output word is checked against GMP across the full cross-product of operations, moduli and kernel variants, with directed edge cases and with the test harness itself validated by fault injection; the benchmark verifies each configuration before timing it, so a fast but incorrect kernel cannot be reported as a speedup.</p><p>This release includes benchmark reports for 26 GPUs across four vendors and five OpenCL runtimes, covering 10225 timed configurations with no incorrect result attributable to the library.</p>",
+  "version": "1.0.0",
+  "upload_type": "software",
+  "access_right": "open",
+  "license": "Apache-2.0",
+  "creators": [
+    {
+      "name": "Nejeoui, Abderrazzak",
+      "affiliation": "National School of Applied Sciences, Cadi Ayyad University, Marrakesh, Morocco",
+      "orcid": "0009-0000-6004-1777"
+    }
+  ],
+  "keywords": [
+    "multiple-precision arithmetic",
+    "OpenCL",
+    "GPU computing",
+    "Montgomery multiplication",
+    "differential testing",
+    "big integer",
+    "modular exponentiation",
+    "heterogeneous computing"
+  ]
+}

@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "MPA-OpenCL: A Differentially Verified Multiple-Precision Arithmetic Library for Heterogeneous Devices"
+abstract: >-
+  A portable multiple-precision arithmetic library written in standard OpenCL C,
+  providing fifteen fixed-width big-integer operations at operand widths from 256
+  to 2048 bits and machine word sizes of 8, 16 and 32 bits, on any OpenCL 1.2
+  device. Every output word is checked against GMP across the full cross-product
+  of operations, moduli and kernel variants before any configuration is timed.
+type: software
+version: 1.0.0
+date-released: "2026-09-15"
+license: Apache-2.0
+repository-code: "https://github.com/nejeoui/MPA-OpenCl"
+authors:
+  - family-names: Nejeoui
+    given-names: Abderrazzak
+    orcid: "https://orcid.org/0009-0000-6004-1777"
+    affiliation: "National School of Applied Sciences, Cadi Ayyad University, Marrakesh, Morocco"
+keywords:
+  - multiple-precision arithmetic
+  - OpenCL
+  - GPU computing
+  - Montgomery multiplication
+  - differential testing
